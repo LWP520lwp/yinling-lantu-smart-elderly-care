@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>银龄岚途 · 乡村智慧养老综合管理平台</title>
+<meta name="description" content="银龄岚途乡村智慧养老综合管理平台，基于华为云 IoT 与盘古大模型，服务平潭综合实验区乡村养老。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23165DFF'/%3E%3Cpath d='M16 24s-7-4.4-7-9.1A3.9 3.9 0 0 1 16 12a3.9 3.9 0 0 1 7 2.9C23 19.6 16 24 16 24Z' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/layout.css">
+<link rel="stylesheet" href="assets/css/components.css">
+<link rel="stylesheet" href="assets/css/pages.css">
+<link rel="stylesheet" href="assets/css/pages-2.css">
+<link rel="stylesheet" href="assets/css/pages-3.css">
+</head>
+<body>
+
+<!-- ============================================================
+     一、登录页
+     ============================================================ -->
+<section class="auth" id="authView">
+  <!-- 左侧品牌展示区 -->
+  <aside class="auth-brand">
+    <div class="brand-art" aria-hidden="true">
+      <svg viewBox="0 0 760 900" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <linearGradient id="waveFade" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#5B8CFF" stop-opacity=".38"/>
+            <stop offset="1" stop-color="#5B8CFF" stop-opacity="0"/>
+          </linearGradient>
+          <linearGradient id="islandFade" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#FF9A3D" stop-opacity=".55"/>
+            <stop offset="1" stop-color="#FF9A3D" stop-opacity=".08"/>
+          </linearGradient>
+        </defs>
+
+        <!-- 平潭主岛轮廓（麒麟形） -->
+        <g class="art-island">
+          <path d="M420 96c34-6 62 10 76 34 12 21 8 44-6 62 22 8 33 26 30 47-3 22-20 35-22 56-2 19 10 34 6 55-4 20-22 33-44 36-16 25-26 46-48 51-24 6-44-10-58-32-20 3-38-6-47-25-10-20-6-44-18-62-13-20-36-26-43-49-7-24 9-44 24-60 13-14 16-34 12-52-5-21 4-42 25-49 19-6 38 2 54-4 21-8 38-8 59-8Z"
+            fill="none" stroke="url(#islandFade)" stroke-width="1.6"/>
+          <path d="M420 96c34-6 62 10 76 34 12 21 8 44-6 62 22 8 33 26 30 47-3 22-20 35-22 56-2 19 10 34 6 55-4 20-22 33-44 36-16 25-26 46-48 51-24 6-44-10-58-32-20 3-38-6-47-25-10-20-6-44-18-62-13-20-36-26-43-49-7-24 9-44 24-60 13-14 16-34 12-52-5-21 4-42 25-49 19-6 38 2 54-4 21-8 38-8 59-8Z"
+            fill="#FF7D00" fill-opacity=".04" stroke="none"/>
+        </g>
+
+        <!-- 离岛 -->
+        <g class="art-islets" fill="none" stroke="url(#islandFade)" stroke-width="1.4">
+          <path d="M300 168c14-4 26 4 24 16-2 11-16 17-26 10-8-6-6-22 2-26Z"/>
+          <path d="M540 214c16-6 30 6 26 20-4 13-22 16-31 6-7-9-3-20 5-26Z"/>
+          <path d="M262 372c12-3 22 4 21 14-1 10-13 15-22 9-7-5-6-19 1-23Z"/>
+        </g>
+
+        <!-- 地形等高线 -->
+        <g class="art-contour" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="1">
+          <path d="M-40 300c120-46 232 6 342-18 96-20 176-70 276-52 84 15 148 12 222-26"/>
+          <path d="M-40 352c120-46 232 6 342-18 96-20 176-70 276-52 84 15 148 12 222-26"/>
+          <path d="M-40 406c120-46 232 6 342-18 96-20 176-70 276-52 84 15 148 12 222-26"/>
+          <path d="M-40 462c120-46 232 6 342-18 96-20 176-70 276-52 84 15 148 12 222-26"/>
+        </g>
+
+        <!-- 数据涟漪 -->
+        <g class="art-ripple" fill="none" stroke="rgba(255,125,0,.16)" stroke-width="1">
+          <circle cx="196" cy="640" r="58"/>
+          <circle cx="196" cy="640" r="104"/>
+          <circle cx="196" cy="640" r="152"/>
+        </g>
+
+        <!-- 海浪 -->
+        <g class="art-waves" fill="none" stroke="url(#waveFade)" stroke-width="1.2">
+          <path d="M-20 748c70 0 70 26 140 26s70-26 140-26 70 26 140 26 70-26 140-26 70 26 140 26 70-26 140-26"/>
+          <path d="M-20 792c70 0 70 26 140 26s70-26 140-26 70 26 140 26 70-26 140-26 70 26 140 26 70-26 140-26"/>
+          <path d="M-20 836c70 0 70 26 140 26s70-26 140-26 70 26 140 26 70-26 140-26 70 26 140 26 70-26 140-26"/>
+        </g>
+      </svg>
+    </div>
+
+    <header class="auth-brand-top">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" fill="none">
+            <rect x="1" y="1" width="38" height="38" rx="11" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.16)"/>
+            <path d="M20 30.5s-9.2-5.4-9.2-11.6A5.2 5.2 0 0 1 20 15.2a5.2 5.2 0 0 1 9.2 3.7c0 6.2-9.2 11.6-9.2 11.6Z" stroke="#FF9A3D" stroke-width="1.8" stroke-linejoin="round"/>
+            <path d="M13.4 12.6c1.4-2 3.7-3.2 6.2-3.4" stroke="rgba(255,255,255,.5)" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="brand-name">银龄岚途</span>
+        <span class="brand-divider"></span>
+        <span class="brand-en">YINLING LANTU</span>
+      </div>
+    </header>
+
+    <div class="auth-brand-body">
+      <p class="eyebrow"><span class="eyebrow-dot"></span>华为开发者大赛 · 智慧民生赛道</p>
+      <h1 class="auth-title">银龄岚途<span class="title-sep">·</span><br>乡村智慧养老综合管理平台</h1>
+      <p class="auth-lede">打好新时代养老服务组合拳<br>用华为云 IoT 赋能海岛乡村养老</p>
+      <ul class="auth-metrics">
+        <li><b>1,268</b><span>在册服务老人</span></li>
+        <li><b>42</b><span>合作村居</span></li>
+        <li><b>12</b><span>养老机构</span></li>
+        <li><b>39</b><span>老人协会</span></li>
+      </ul>
+    </div>
+
+    <footer class="auth-brand-foot">
+      <div class="foot-line">
+        <span class="foot-label">参赛单位</span>
+        <span>福州工商学院 · 银龄岚途团队</span>
+      </div>
+      <div class="foot-line">
+        <span class="foot-label">落地场景</span>
+        <span>福建省平潭综合实验区</span>
+      </div>
+    </footer>
+  </aside>
+
+  <!-- 右侧登录表单区 -->
+  <main class="auth-panel">
+    <div class="auth-panel-inner">
+      <div class="auth-head">
+        <h2>欢迎回来</h2>
+        <p>请使用平台分配的账号登录工作台</p>
+      </div>
+
+      <form class="auth-form" id="loginForm" novalidate autocomplete="off">
+        <div class="field">
+          <label for="loginAccount">账号</label>
+          <div class="input-wrap">
+            <span class="input-ico" data-icon="user"></span>
+            <input id="loginAccount" name="account" type="text" placeholder="请输入账号 / 工号" autocomplete="username" value="">
+          </div>
+          <p class="field-error" id="errAccount" hidden></p>
+        </div>
+
+        <div class="field">
+          <label for="loginPassword">密码</label>
+          <div class="input-wrap">
+            <span class="input-ico" data-icon="lock"></span>
+            <input id="loginPassword" name="password" type="password" placeholder="请输入登录密码" autocomplete="current-password" value="">
+            <button type="button" class="input-action" id="togglePwd" aria-label="显示密码" title="显示密码">
+              <span data-icon="eye"></span>
+            </button>
+          </div>
+          <p class="field-error" id="errPassword" hidden></p>
+        </div>
+
+        <div class="field">
+          <label for="loginCaptcha">验证码</label>
+          <div class="captcha-row">
+            <div class="input-wrap">
+              <span class="input-ico" data-icon="shield"></span>
+              <input id="loginCaptcha" name="captcha" type="text" placeholder="4 位验证码" maxlength="4" inputmode="text">
+            </div>
+            <button type="button" class="captcha-img" id="captchaBox" title="看不清？点击刷新" aria-label="点击刷新验证码">
+              <svg id="captchaSvg" viewBox="0 0 112 40" width="112" height="40" aria-hidden="true"></svg>
+            </button>
+          </div>
+          <p class="field-error" id="errCaptcha" hidden></p>
+        </div>
+
+        <div class="field">
+          <label for="loginRole">角色</label>
+          <div class="input-wrap select-wrap">
+            <span class="input-ico" data-icon="users"></span>
+            <select id="loginRole" name="role">
+              <option value="admin">超级管理员</option>
+              <option value="social">社区社工</option>
+              <option value="family">老人家属</option>
+            </select>
+            <span class="select-caret" data-icon="chevron"></span>
+          </div>
+        </div>
+
+        <div class="auth-row">
+          <label class="checkbox">
+            <input type="checkbox" id="rememberMe" checked>
+            <span class="checkbox-box" data-icon="check"></span>
+            <span>记住密码</span>
+          </label>
+          <button type="button" class="link-btn" id="forgotPwd">忘记密码？</button>
+        </div>
+
+        <p class="auth-error" id="authError" hidden></p>
+
+        <button type="submit" class="btn btn-primary btn-block auth-submit" id="loginBtn">
+          <span class="btn-label">登录</span>
+        </button>
+
+        <div class="demo-accounts">
+          <span class="demo-title">演示账号（密码均为 123456）</span>
+          <div class="demo-chips">
+            <button type="button" class="demo-chip" data-account="admin" data-role="admin">管理员 · admin</button>
+            <button type="button" class="demo-chip" data-account="shegong01" data-role="social">社工 · shegong01</button>
+            <button type="button" class="demo-chip" data-account="family01" data-role="family">家属 · family01</button>
+          </div>
+        </div>
+      </form>
+
+      <p class="auth-tech">技术支持：华为云 IoT 设备接入 + 盘古大模型 · 鸿蒙智联生态</p>
+    </div>
+  </main>
+</section>
+
+<!-- ============================================================
+     二、管理后台主体
+     ============================================================ -->
+<div class="app" id="appView" hidden>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-mark brand-mark-sm" aria-hidden="true">
+        <svg viewBox="0 0 40 40" fill="none">
+          <rect x="1" y="1" width="38" height="38" rx="11" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.16)"/>
+          <path d="M20 30.5s-9.2-5.4-9.2-11.6A5.2 5.2 0 0 1 20 15.2a5.2 5.2 0 0 1 9.2 3.7c0 6.2-9.2 11.6-9.2 11.6Z" stroke="#FF9A3D" stroke-width="1.8" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="sidebar-brand-text">
+        <b>银龄岚途</b>
+        <em>智慧养老管理平台</em>
+      </span>
+    </div>
+
+    <nav class="sidebar-nav" id="sidebarNav" aria-label="主导航"></nav>
+
+    <div class="sidebar-foot">
+      <div class="iot-status" id="iotStatus">
+        <span class="iot-dot"></span>
+        <div>
+          <b>华为云 IoT 接入正常</b>
+          <em>1,142 台设备在线</em>
+        </div>
+      </div>
+      <button type="button" class="sidebar-logout" id="logoutBtn">
+        <span data-icon="logout"></span><span>退出登录</span>
+      </button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button type="button" class="icon-btn collapse-btn" id="collapseBtn" aria-label="收起导航">
+          <span data-icon="menu"></span>
+        </button>
+        <nav class="breadcrumb" id="breadcrumb" aria-label="面包屑"></nav>
+      </div>
+
+      <div class="topbar-right">
+        <div class="topbar-region">
+          <span data-icon="map-pin"></span>
+          <span>平潭综合实验区</span>
+        </div>
+        <button type="button" class="icon-btn" id="soundToggle" title="告警提示音：已开启" aria-label="告警提示音开关">
+          <span data-icon="volume"></span>
+        </button>
+        <button type="button" class="icon-btn" id="alertBell" title="未处理告警" aria-label="未处理告警">
+          <span data-icon="bell"></span>
+          <i class="dot-badge" id="alertBadge">6</i>
+        </button>
+        <div class="topbar-user" id="userMenu">
+          <button type="button" class="user-trigger" id="userTrigger" aria-haspopup="true" aria-expanded="false">
+            <span class="avatar avatar-sm" id="userAvatar">林</span>
+            <span class="user-meta">
+              <b id="userName">林晓岚</b>
+              <em id="userRole">超级管理员</em>
+            </span>
+            <span class="user-caret" data-icon="chevron"></span>
+          </button>
+          <div class="user-dropdown" id="userDropdown" hidden>
+            <div class="dropdown-head">
+              <b id="ddName">林晓岚</b>
+              <span id="ddScope">全域数据权限</span>
+            </div>
+            <button type="button" class="dropdown-item" data-nav="#/settings"><span data-icon="user"></span>个人中心</button>
+            <button type="button" class="dropdown-item" data-nav="#/settings?tab=security"><span data-icon="lock"></span>修改密码</button>
+            <div class="dropdown-sep"></div>
+            <div class="dropdown-switch">
+              <span>切换演示角色</span>
+              <div class="segmented segmented-sm" id="roleSwitch">
+                <button type="button" data-role="admin">管理员</button>
+                <button type="button" data-role="social">社工</button>
+                <button type="button" data-role="family">家属</button>
+              </div>
+            </div>
+            <div class="dropdown-sep"></div>
+            <button type="button" class="dropdown-item danger" data-nav="logout"><span data-icon="logout"></span>退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="content" id="view" tabindex="-1"></main>
+
+    <footer class="techbase">
+      <span class="techbase-left">技术底座：<b>华为云 IoT 设备接入</b> · <b>华为云盘古大模型</b> · <b>鸿蒙智联生态</b></span>
+      <span class="techbase-right">银龄岚途 · 福州工商学院团队 · 数据仅用于赛事演示</span>
+    </footer>
+  </div>
+</div>
+
+<!-- 全局浮层容器 -->
+<div id="overlayRoot"></div>
+<div id="toastRoot" class="toast-root" aria-live="polite"></div>
+
+<!-- ============================================================
+     脚本（按依赖顺序加载，原生 JS，无需构建）
+     ============================================================ -->
+<script src="vendor/echarts.min.js"></script>
+<script src="assets/js/core/icons.js"></script>
+<script src="assets/js/core/utils.js"></script>
+<script src="assets/js/data/mock.js"></script>
+<script src="assets/js/core/store.js"></script>
+<script src="assets/js/core/router.js"></script>
+<script src="assets/js/core/ui.js"></script>
+<script src="assets/js/core/charts.js"></script>
+<script src="assets/js/pages/auth.js"></script>
+<script src="assets/js/pages/overview.js"></script>
+<script src="assets/js/pages/elders.js"></script>
+<script src="assets/js/pages/devices.js"></script>
+<script src="assets/js/pages/alerts.js"></script>
+<script src="assets/js/pages/orders.js"></script>
+<script src="assets/js/pages/reports.js"></script>
+<script src="assets/js/core/api.js"></script>
+<script src="assets/js/core/realtime.js"></script>
+<script src="assets/js/pages/ai.js"></script>
+<script src="assets/js/pages/settings.js"></script>
+<script src="assets/js/pages/family.js"></script>
+<script src="assets/js/app.js"></script>
+<noscript><p style="font:14px/1.6 sans-serif;padding:24px">本平台需要启用 JavaScript 才能运行。</p></noscript>
+</body>
+</html>

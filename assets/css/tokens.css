@@ -1,0 +1,205 @@
+/* ==========================================================================
+   银龄岚途 · 设计令牌 / 基础重置 / 排版
+   色彩、字号、圆角、阴影均按政务民生类后台规范收敛，禁用高饱和刺眼配色
+   ========================================================================== */
+
+:root {
+  /* ---- 品牌色：温暖深海蓝 ---- */
+  --brand: #165DFF;
+  --brand-700: #0B3FCC;
+  --brand-600: #0E42D2;
+  --brand-500: #4080FF;
+  --brand-300: #94BFFF;
+  --brand-100: #DCE8FF;
+  --brand-50: #EEF4FF;
+
+  /* ---- 辅助色：暖阳橙 / 健康绿 / 预警红 ---- */
+  --orange: #FF7D00;
+  --orange-600: #D96900;
+  --orange-100: #FFE4C7;
+  --orange-50: #FFF4E8;
+
+  --green: #00B42A;
+  --green-600: #009A23;
+  --green-100: #C9F5D4;
+  --green-50: #EAFBF0;
+
+  --red: #F53F3F;
+  --red-600: #CB2634;
+  --red-100: #FFD2CE;
+  --red-50: #FFEDEB;
+
+  --gold: #D48806;
+  --gold-50: #FFF7E0;
+
+  /* ---- 中性色 ---- */
+  --bg: #F5F7FA;
+  --bg-deep: #EDF1F7;
+  --surface: #FFFFFF;
+  --surface-2: #FAFBFD;
+  --line: #E7EAF0;
+  --line-strong: #D8DEE9;
+  --text: #1D2129;
+  --text-2: #4E5969;
+  --text-3: #86909C;
+  --text-4: #A9B0BC;
+
+  /* ---- 侧栏深色 ---- */
+  --nav: #12213A;
+  --nav-2: #172A47;
+  --nav-line: rgba(255, 255, 255, .08);
+  --nav-text: rgba(255, 255, 255, .66);
+  --nav-text-active: #FFFFFF;
+
+  /* ---- 字体 ---- */
+  --font-sans: "Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, "Segoe UI", sans-serif;
+  --font-num: "Bahnschrift", "DIN Alternate", "SF Pro Display", "Segoe UI", ui-monospace, monospace;
+
+  /* ---- 间距 ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+
+  /* ---- 圆角（统一 8px 基准） ---- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r: 8px;
+  --r-lg: 12px;
+
+  /* ---- 阴影：低对比、带背景色倾向 ---- */
+  --shadow-1: 0 1px 2px rgba(29, 33, 41, .04);
+  --shadow-2: 0 1px 2px rgba(29, 33, 41, .04), 0 8px 24px -18px rgba(29, 33, 41, .35);
+  --shadow-pop: 0 24px 60px -24px rgba(14, 33, 58, .32), 0 2px 8px rgba(14, 33, 58, .06);
+
+  /* ---- 布局 ---- */
+  --nav-w: 236px;
+  --nav-w-collapsed: 76px;
+  --topbar-h: 62px;
+  --techbar-h: 34px;
+
+  --ease: cubic-bezier(.16, 1, .3, 1);
+}
+
+/* ---------- Reset ---------- */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html,
+body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5, p, ul, ol, figure, dl, dd { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; font-size: inherit; color: inherit; }
+input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+
+button, [role="button"] { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+svg { display: block; }
+
+img { max-width: 100%; display: block; }
+
+::selection { background: var(--brand-100); color: var(--brand-700); }
+
+/* ---------- 滚动条 ---------- */
+* { scrollbar-width: thin; scrollbar-color: #C9D0DC transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb {
+  background: #C9D0DC;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: #AEB7C6; background-clip: content-box; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 无障碍 ---------- */
+:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- 排版工具 ---------- */
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; letter-spacing: .2px; }
+.mono { font-family: "SF Mono", "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+.t2 { color: var(--text-2); }
+.t3 { color: var(--text-3); }
+.t-sm { font-size: 12px; }
+.t-xs { font-size: 11px; }
+.t-strong { font-weight: 600; color: var(--text); }
+.nowrap { white-space: nowrap; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flex { display: flex; align-items: center; }
+.flex-col { display: flex; flex-direction: column; }
+.gap-1 { gap: 4px; } .gap-2 { gap: 8px; } .gap-3 { gap: 12px; } .gap-4 { gap: 16px; }
+.ml-auto { margin-left: auto; }
+.mt-2 { margin-top: 8px; } .mt-3 { margin-top: 12px; } .mt-4 { margin-top: 16px; }
+.w-full { width: 100%; }
+
+/* 图标基线 */
+.ico {
+  width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none;
+}
+.ico svg { width: 100%; height: 100%; }
+
+/* 页面入场动画 */
+@keyframes yl-fade-up {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes yl-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes yl-spin { to { transform: rotate(360deg); } }
+@keyframes yl-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(245, 63, 63, .45); }
+  70% { box-shadow: 0 0 0 8px rgba(245, 63, 63, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 63, 63, 0); }
+}
+@keyframes yl-shimmer {
+  0% { background-position: -320px 0; }
+  100% { background-position: 320px 0; }
+}
+@keyframes yl-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}

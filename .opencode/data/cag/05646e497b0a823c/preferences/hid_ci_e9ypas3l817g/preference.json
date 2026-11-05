@@ -1,0 +1,98 @@
+[
+  {
+    "id": "47a4937193a2401cb4a6e33ade3a3fe0",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Programming language",
+    "content": "后端偏好 Python 3.10+，前端使用原生 JavaScript。",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T05:10:24.479Z",
+    "updateTime": "2026-11-05T05:10:24.479Z",
+    "isDeleted": false
+  },
+  {
+    "id": "5507a547521c44ae88030490d5081b88",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Frontend framework",
+    "content": "prefers a native HTML/CSS/JavaScript single-page app with no frontend framework and no build tools",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T05:10:24.495Z",
+    "updateTime": "2026-11-05T05:43:38.061Z",
+    "isDeleted": false
+  },
+  {
+    "id": "e2560cbc1bb64428b825145fa81d59e1",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Backend framework",
+    "content": "后端采用最小 FastAPI 应用，配合 uvicorn 启动、httpx 原生流式调用、python-dotenv 配置、pydantic 校验；明确不引入 openai SDK。",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T05:10:24.503Z",
+    "updateTime": "2026-11-05T05:10:24.503Z",
+    "isDeleted": false
+  },
+  {
+    "id": "7339686bb601422f882f94935cb3843c",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Styling scheme",
+    "content": "prefers native CSS rather than a CSS framework or build-based styling setup",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T05:10:24.510Z",
+    "updateTime": "2026-11-05T05:43:38.070Z",
+    "isDeleted": false
+  },
+  {
+    "id": "4f7d480c10ea438db488539aed7a5bfe",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Naming convention",
+    "content": "prefers Python PEP8 style with descriptive English identifiers such as device_id and event_time, while allowing Chinese comments",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T05:10:24.515Z",
+    "updateTime": "2026-11-05T05:43:38.079Z",
+    "isDeleted": false
+  },
+  {
+    "id": "3c3ea2d03b81449f869f035c066272ed",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Language preference",
+    "content": "使用中文进行交互、system prompt 和代码注释，技术术语或变量名可使用准确英文。",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T05:10:24.520Z",
+    "updateTime": "2026-11-05T05:10:24.520Z",
+    "isDeleted": false
+  },
+  {
+    "id": "68e8906c4e704744b0922877ceda2e12",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Role setting",
+    "content": "要求后端 system prompt 将模型设定为面向乡村/海岛养老场景的 AI 健康助手，服务社工与老人家属，语言通俗、建议可操作。",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T05:10:24.530Z",
+    "updateTime": "2026-11-05T05:10:24.530Z",
+    "isDeleted": false
+  },
+  {
+    "id": "918267fd8a1a4dfea1e9be1b1c7732aa",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Explanation preference",
+    "content": "wants complete runnable code rather than fragments, plus detailed README instructions for setup, startup order, verification, and API test examples",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T05:10:24.537Z",
+    "updateTime": "2026-11-05T05:43:38.089Z",
+    "isDeleted": false
+  }
+]
