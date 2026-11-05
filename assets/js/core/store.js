@@ -7,6 +7,9 @@
   var U = YL.utils;
   var D = YL.data;
 
+  var SESSION_KEY = 'yl_session_v2';   // 会话键：含后端 token 与 user
+  var LEGACY_KEY = 'yl_session';       // 旧版演示会话键：无 token，只清理不迁移
+
   var ROLES = {
     admin: {
       label: '超级管理员',
@@ -100,39 +103,91 @@
     state.navCollapsed = pref.navCollapsed === true;
     state.thresholds = Object.assign({}, DEFAULT_THRESHOLDS, pref.thresholds || {});
 
-    var session = U.store.get('yl_session', null);
-    if (session && ROLES[session.role]) {
+    var session = U.store.get(SESSION_KEY, null);
+    // 真实会话看 token、离线演示会话看 offline 标记，二者有其一即为有效登录态
+    var valid = !!(session && session.user && (session.token || session.offline));
+    if (valid) {
+      // 兼容字段缺失时从 user 回填，保证 role()、session().name 等既有调用稳定
+      session.account = session.account || session.user.account || '';
+      session.role = session.role || session.user.role || '';
+      session.name = session.name || session.user.name || '';
+      session.demoUserId = session.demoUserId || session.user.id || '';
+      valid = !!ROLES[session.role];   // 角色必须在 ROLES 中认识，避免恢复出未知权限
+    }
+    if (valid) {
       state.session = session;
+    } else {
+      // 旧键里只有演示会话、没有 token，恢复出来就是假登录态，直接丢弃
+      U.store.remove(LEGACY_KEY);
+      // 非法 v2 会话同样清掉，避免脏键反复参与启动判定
+      U.store.remove(SESSION_KEY);
     }
     return state;
   }
 
-  function login(account, role) {
-    var roleConf = ROLES[role] || ROLES.admin;
-    var found = D.ACCOUNTS.filter(function (a) { return a.account === account; })[0];
-    state.session = {
-      account: account,
-      role: role,
-      name: roleConf.name,
+  /**
+   * 组装统一会话结构
+   * account / role / name / demoUserId 均从 user 派生，作为兼容字段保留，
+   * 使 session().name、role()、applySession 等既有调用不需要改
+   * @param {object} payload { token, user, offline }
+   */
+  function buildSession(payload) {
+    var p = payload || {};
+    var u = p.user || {};
+    return {
+      token: p.token || '',
+      user: {
+        id: u.id || '',
+        name: u.name || '',
+        account: u.account || '',
+        role: u.role || '',
+        scope: u.scope || ''
+      },
+      account: u.account || '',
+      role: u.role || '',
+      name: u.name || '',
       loginAt: Date.now(),
-      demoUserId: found ? found.id : ''
+      demoUserId: u.id || '',
+      offline: p.offline === true
     };
-    U.store.set('yl_session', state.session);
+  }
+
+  /**
+   * 保存登录会话，真实登录与离线演示共用
+   * @param {object} payload login({token, user}) 或 login({token:'', user, offline:true})
+   */
+  function login(payload) {
+    state.session = buildSession(payload);
+    U.store.set(SESSION_KEY, state.session);
     emit('session', state.session);
     return state.session;
   }
 
   function logout() {
     state.session = null;
-    U.store.remove('yl_session');
+    U.store.remove(SESSION_KEY);
+    U.store.remove(LEGACY_KEY);   // 保险起见，旧键一并清理
     emit('session', null);
   }
 
+  /** 角色切换仅用于演示，真实鉴权以后端 token 为准 */
   function setRole(role) {
     if (!ROLES[role]) return null;
-    login(ROLES[role].account, role);
+    var conf = ROLES[role];
+    var found = D.ACCOUNTS.filter(function (a) { return a.account === conf.account; })[0];
+    var user = {
+      id: found ? found.id : '',
+      name: conf.name,
+      account: conf.account,
+      role: role,
+      scope: role === 'admin' ? '全域' : ((found && found.village) || '')
+    };
+    login({ token: '', user: user, offline: true });
     return state.session;
   }
+
+  function token() { return (state.session && state.session.token) || ''; }
+  function isAuthed() { return !!token(); }
 
   function session() { return state.session; }
   function role() { return state.session ? state.session.role : 'admin'; }
@@ -319,6 +374,7 @@
     state: state,
     init: init, on: on, emit: emit,
     login: login, logout: logout, setRole: setRole, session: session,
+    token: token, isAuthed: isAuthed,
     role: role, roleConf: roleConf, can: can,
     scopeTown: scopeTown, elders: elders, alerts: alerts, orders: orders, devices: devices,
     pendingAlertCount: pendingAlertCount,

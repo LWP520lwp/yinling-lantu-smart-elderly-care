@@ -6,7 +6,8 @@
      3. 内置 25s 心跳与指数退避重连（1s→2s→4s→8s→16s，最多 5 次），
         重试耗尽后回调一次 onUnavailable，由页面决定是否降级为轮询；
      4. DEVICE_ELDER_MAP 维护云端 device_id → 老人 id 的绑定关系。
-   说明：本文件不包含任何密钥、token 或设备密钥，鉴权由后端网关自行完成。
+   说明：本文件不含任何密钥字面量；鉴权 token 在运行时从 YL.store 读取，
+         仅用于拼接连接地址，且不会输出到控制台。
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -82,6 +83,28 @@
       }
     } catch (e) { /* 推导异常：忽略并回落常量 */ }
     return WS_BASE;
+  }
+
+  /**
+   * 读取当前登录 token：store 模块缺失 / 未登录 / 读取异常时一律返回空串，
+   * 由 connect() 据此判定是否建立连接（未登录不建连）。
+   */
+  function readToken() {
+    try {
+      if (YL.store && typeof YL.store.token === 'function') {
+        return YL.store.token() || '';
+      }
+    } catch (e) { /* 读取异常按未登录处理 */ }
+    return '';
+  }
+
+  /**
+   * 拼接鉴权地址：浏览器 WebSocket 无法自定义请求头，token 只能走查询参数；
+   * 基地址已带查询串时用 & 追加，token 经 encodeURIComponent 编码避免特殊字符破坏 URL。
+   */
+  function buildUrl(base, tk) {
+    if (!tk) return base;
+    return base + (base.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(tk);
   }
 
   /** 规整回调集合，非函数项一律丢弃，避免后续 each 调用时报错 */
@@ -182,6 +205,20 @@
   }
 
   /**
+   * 判断以 { 开头的文本是否具备合法 JSON 对象的起始结构。
+   * 合法前缀在 `{` 之后只能是空白、字符串键（"）或空对象（}）；
+   * 形如 `{bad json` 的文本永远无法补全，必须立即丢弃，不能进入半包缓存，
+   * 否则会与下一条正常帧拼接后一起被丢弃，造成连锁丢帧。
+   */
+  function isJsonObjectPrefix(text) {
+    var i = 1;
+    while (i < text.length && /\s/.test(text.charAt(i))) i += 1;
+    if (i >= text.length) return true;                // 仅有 "{"（或 "{" + 空白）
+    var ch = text.charAt(i);
+    return ch === '"' || ch === '}';
+  }
+
+  /**
    * 处理原始消息帧
    * 正常情况一帧即一条完整 JSON；若解析失败但仍是未闭合的 JSON 片段，
    * 先缓存等待后续片段拼接；其余坏帧只告警并丢弃。
@@ -197,7 +234,8 @@
     try {
       msg = JSON.parse(text);
     } catch (e) {
-      if (text.charAt(0) === '{' && text.length <= MAX_FRAME_LENGTH && isIncompleteJson(text)) {
+      if (text.charAt(0) === '{' && text.length <= MAX_FRAME_LENGTH &&
+          isIncompleteJson(text) && isJsonObjectPrefix(text)) {
         pendingFrame = text;                          // 半包：缓存等下一段
         return;
       }
@@ -272,9 +310,28 @@
     scheduleRetry();
   }
 
-  /** 创建连接；不支持的浏览器直接按“不可用”处理 */
+  /** 创建连接；未登录不建连直接降级，不支持的浏览器同样按“不可用”处理 */
   function connect() {
     if (stopped) return;
+
+    // 未登录（无 token）：不发起连接，直接降级为本地模拟，且不触发重连
+    var tk = readToken();
+    if (!tk) {
+      socket = null;
+      pendingFrame = '';
+      stopHeartbeat();
+      stopRetry();
+      setEnabled(false);
+      if (!gaveUp) {
+        gaveUp = true;
+        safeCall(handlers && handlers.onUnavailable);
+      }
+      if (global.console && typeof global.console.info === 'function') {
+        global.console.info('[YL.realtime] 未登录，实时链路使用本地模拟');
+      }
+      return;
+    }
+
     var WS = global.WebSocket;
     if (typeof WS !== 'function') {
       lastErrorAt = Date.now();
@@ -284,7 +341,7 @@
     }
     var ws;
     try {
-      ws = new WS(resolveWsBase());
+      ws = new WS(buildUrl(resolveWsBase(), tk));
     } catch (e) {
       lastErrorAt = Date.now();
       scheduleRetry();

@@ -157,8 +157,8 @@
         rows.map(function (o) {
           return '<tr>' +
             '<td><span class="mono t-sm cell-strong">' + U.esc(o.id) + '</span></td>' +
-            '<td><div class="person"><span class="avatar avatar-sm x-slate">' + U.esc(o.elderName.slice(0, 1)) + '</span>' +
-              '<div class="person-info"><span class="person-name">' + U.esc(o.elderName) + '</span>' +
+            '<td><div class="person"><span class="avatar avatar-sm x-slate">' + U.esc(U.maskName(o.elderName).slice(0, 1)) + '</span>' +
+              '<div class="person-info"><span class="person-name">' + U.esc(U.maskName(o.elderName)) + '</span>' +
                 '<span class="person-meta">' + U.esc(o.village) + '</span></div></div></td>' +
             '<td><span class="order-type-cell">' + YL.icon(D.DICT.orderType[o.type].icon) + D.DICT.orderType[o.type].text + '</span></td>' +
             '<td><span class="t-sm">' + U.fmtDate(o.appointAt, 'MM-DD HH:mm') + '</span>' +
@@ -219,9 +219,10 @@
 
     container.querySelector('#exportOrders').addEventListener('click', function () {
       var list = filtered();
+      var raw = U.canSeeRaw();
       var headers = ['工单编号', '服务老人', '所属村居', '工单类型', '预约时间', '负责人', '志愿者', '状态', '创建时间', '服务小结', '家属评分'];
       var rows = list.map(function (o) {
-        return [o.id, o.elderName, o.village, D.DICT.orderType[o.type].text,
+        return [o.id, raw ? o.elderName : U.maskName(o.elderName), o.village, D.DICT.orderType[o.type].text,
           U.fmtDate(o.appointAt, 'YYYY-MM-DD HH:mm'), o.owner, o.volunteer || '—',
           D.DICT.orderStatus[o.status].text, U.fmtDate(o.createdAt, 'YYYY-MM-DD HH:mm'),
           o.summary || '—', o.rating ? o.rating + ' 星' : '—'];
@@ -253,7 +254,7 @@
               '<option value="">请选择服务对象</option>' +
               elders.map(function (e) {
                 return '<option value="' + e.id + '"' + (elderId === e.id ? ' selected' : '') + '>' +
-                  U.esc(e.name) + ' · ' + e.age + ' 岁 · ' + U.esc(e.village) + '</option>';
+                  U.esc(U.maskName(e.name)) + ' · ' + e.age + ' 岁 · ' + U.esc(e.village) + '</option>';
               }).join('') +
             '</select><span class="select-caret" data-icon="chevron"></span></div></div>' +
           '<div class="field"><label>服务类型 <span class="req">*</span></label>' +
@@ -323,7 +324,7 @@
     UI.modal({
       size: 'sm',
       title: '工单派单',
-      desc: o.id + ' · ' + D.DICT.orderType[o.type].text + ' · ' + o.elderName,
+      desc: o.id + ' · ' + D.DICT.orderType[o.type].text + ' · ' + U.esc(U.maskName(o.elderName)),
       body:
         '<form id="assignForm" class="form-stack">' +
           '<div class="field"><label>指派社工 <span class="req">*</span></label>' +
@@ -366,7 +367,7 @@
     if (!o) return;
     UI.modal({
       title: '工单结案',
-      desc: o.id + ' · ' + U.esc(o.elderName) + ' · ' + D.DICT.orderType[o.type].text,
+      desc: o.id + ' · ' + U.esc(U.maskName(o.elderName)) + ' · ' + D.DICT.orderType[o.type].text,
       body:
         '<form id="closeForm" class="form-stack">' +
           '<div class="form-grid">' +
@@ -460,7 +461,7 @@
             '<div class="order-hero-top"><span class="mono order-hero-id">' + U.esc(o.id) + '</span>' +
               UI.statusTag(D.DICT.orderStatus, o.status) +
               '<span class="tag tag-outline">' + D.DICT.orderType[o.type].text + '</span></div>' +
-            '<h2>' + U.esc(o.elderName) + ' · ' + D.DICT.orderType[o.type].text + '</h2>' +
+            '<h2>' + U.esc(U.maskName(o.elderName)) + ' · ' + D.DICT.orderType[o.type].text + '</h2>' +
             '<p>' + U.esc(o.village) + ' · 预约 ' + U.fmtDate(o.appointAt, 'YYYY-MM-DD HH:mm') + ' · 负责人 ' + U.esc(o.owner) + '</p>' +
           '</div>' +
           '<div class="order-hero-stats">' +
@@ -477,7 +478,7 @@
               '<div class="card-body">' +
                 '<dl class="kv-list">' +
                   '<div><span class="k">工单编号</span><span class="v mono">' + U.esc(o.id) + '</span></div>' +
-                  '<div><span class="k">服务对象</span><span class="v"><a class="link-name" href="#/elders/' + o.elderId + '">' + U.esc(o.elderName) + '</a>（' + U.esc(o.village) + '）</span></div>' +
+                  '<div><span class="k">服务对象</span><span class="v"><a class="link-name" href="#/elders/' + o.elderId + '">' + U.esc(U.maskName(o.elderName)) + '</a>（' + U.esc(o.village) + '）</span></div>' +
                   '<div><span class="k">联系电话</span><span class="v num">' + U.maskPhone(o.phone) + '</span></div>' +
                   '<div><span class="k">服务类型</span><span class="v">' + D.DICT.orderType[o.type].text + '</span></div>' +
                   '<div><span class="k">预约时间</span><span class="v">' + U.fmtDate(o.appointAt, 'YYYY-MM-DD HH:mm') + '</span></div>' +
@@ -528,7 +529,7 @@
                     '<p>' + U.esc(o.summary || '服务已完成，老人状态平稳。') + '</p>' +
                     '<div class="divider"></div>' +
                     '<div class="rating-block">' +
-                      '<div><b>家属评价</b><p class="t3 t-sm">' + U.fmtDate(o.appointAt + 86400000, 'YYYY-MM-DD') + ' 由家属 ' + U.esc(o.elderName) + ' 的家属提交</p></div>' +
+                      '<div><b>家属评价</b><p class="t3 t-sm">' + U.fmtDate(o.appointAt + 86400000, 'YYYY-MM-DD') + ' 由家属 ' + U.esc(U.maskName(o.elderName)) + ' 的家属提交</p></div>' +
                       '<div class="rating-stars">' + stars(o.rating || 5) + '<span>' + (o.rating || 5) + '.0</span></div>' +
                     '</div>' +
                     '<p class="rating-text">“社工准时上门，态度很好，还帮忙测量了血压，非常感谢。” </p>' +

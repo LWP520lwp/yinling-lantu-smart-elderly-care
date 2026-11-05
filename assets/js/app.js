@@ -101,8 +101,52 @@
     startRealtime();
   }
 
+  /**
+   * 进入工作台：展示外壳 → 落地默认路由 → 启动路由与实时链路。
+   * 登录成功回调与 boot() 的会话校验共用，保证两条路径行为一致。
+   */
+  function launchApp() {
+    showApp();
+    var home = defaultHome();
+    var raw = location.hash.replace(/^#/, '');
+    if (!raw || raw === '/') {
+      YL.router.go(home, true);
+    }
+    routerStarted = true;
+    YL.router.start(onRoute);
+    startRealtime();
+  }
+
+  /** 401 处理去重时间戳：api.js 与 boot 校验可能先后上报同一次失效 */
+  var lastUnauthorizedAt = 0;
+
+  /**
+   * 登录态失效：由 api.js 收到 401 后调用（此时本地会话可能已被其清理）。
+   * 统一收敛为「断开实时链路 → 清会话 → 回登录页 → 提示重新登录」，
+   * 避免停留在所有请求都会 401 的残缺工作台上。
+   */
+  function handleUnauthorized() {
+    // 同一次失效只处理一次（api.js 内部已调用过一次，boot 的 catch 还会再报告）
+    var now = Date.now();
+    if (now - lastUnauthorizedAt < 1500) return;
+    lastUnauthorizedAt = now;
+
+    stopRealtime();
+    S.logout();
+    showAuth();
+    UI.toast('登录状态已失效，请重新登录', 'warn', 2600);
+  }
+
   function exitApp() {
     stopRealtime();
+    // 审计上报依赖 token，必须赶在清理会话之前发出；失败由 api.audit 内部静默
+    if (YL.api && typeof YL.api.audit === 'function') {
+      try { YL.api.audit('logout', { result: 'ok', target_type: 'session' }); } catch (e) { /* 审计失败不影响退出 */ }
+    }
+    // 通知 api 层清理会话（实现只清本地存储，不发起网络请求，可安全调用）
+    if (YL.api && typeof YL.api.logout === 'function') {
+      try { YL.api.logout(); } catch (e) { /* 清理异常不影响退出流程 */ }
+    }
     S.logout();
     if (history.replaceState) history.replaceState(null, '', location.pathname + location.search);
     else location.hash = '';
@@ -267,7 +311,9 @@
       parts = ['我的家人', '健康详情'];
     } else if (key === 'elders' && route.params.id) {
       var elder = D.ELDER_MAP[route.params.id];
-      parts = ['养老服务', '老人档案', elder ? elder.name : '档案详情'];
+      // 非管理员（如社工）面包屑只展示脱敏姓名，管理员展示原文
+      var crumbName = elder ? (U.canSeeRaw() ? elder.name : U.maskName(elder.name)) : '档案详情';
+      parts = ['养老服务', '老人档案', crumbName];
     } else if (key === 'devices' && route.params.id) {
       parts = ['养老服务', '智能设备', route.params.id];
     } else if (key === 'orders' && route.params.id) {
@@ -445,6 +491,12 @@
     var old = document.getElementById('liveAlertPop');
     if (old) old.remove();
 
+    // 与面包屑同一规则：admin 显示原文，其他角色只显示脱敏姓名（maskName 对空值安全）
+    var raw = U.canSeeRaw();
+    var elderRealName = alert.elderName === null || alert.elderName === undefined ? '' : String(alert.elderName);
+    var elderShowName = raw ? elderRealName : U.maskName(elderRealName);
+    var familyShowName = raw ? alert.familyName : U.maskName(alert.familyName);
+
     var node = U.el(
       '<div class="alert-pop" id="liveAlertPop" role="alert">' +
         '<div class="alert-pop-bar"></div>' +
@@ -458,8 +510,8 @@
         '</div>' +
         '<div class="alert-pop-body">' +
           '<div class="alert-pop-person">' +
-            '<span class="avatar x-warm">' + U.esc(alert.elderName.slice(0, 1)) + '</span>' +
-            '<div><b>' + U.esc(alert.elderName) + '</b><em>' + alert.elderAge + ' 岁 · 紧急联系人 ' + U.esc(alert.familyName) + '</em></div>' +
+            '<span class="avatar x-warm">' + U.esc(elderShowName.slice(0, 1)) + '</span>' +
+            '<div><b>' + U.esc(elderShowName) + '</b><em>' + alert.elderAge + ' 岁 · 紧急联系人 ' + U.esc(familyShowName) + '</em></div>' +
           '</div>' +
           '<div class="alert-pop-metric"><span>' + U.esc(alert.metric) + '</span><em>处置倒计时</em></div>' +
         '</div>' +
@@ -670,19 +722,45 @@
       enterApp();
     });
 
-    if (S.session()) {
-      showApp();
-      var home = defaultHome();
-      var raw = location.hash.replace(/^#/, '');
-      if (!raw || raw === '/') {
-        YL.router.go(home, true);
-      }
-      routerStarted = true;
-      YL.router.start(onRoute);
-      startRealtime();
-    } else {
+    var sess = S.session();
+    if (!sess) {
       showAuth();
+      return;
     }
+
+    // 离线演示会话 / 认证模块缺失：直接进入，不做联网校验（保证无后端可用）
+    if (!YL.api || typeof YL.api.me !== 'function' || sess.offline || !S.token()) {
+      launchApp();
+      return;
+    }
+
+    // 在线会话：先向后端确认 token 仍然有效，再进入工作台
+    var checking;
+    try {
+      checking = YL.api.me();
+    } catch (e) {
+      checking = null;
+    }
+    if (!checking || typeof checking.then !== 'function') {
+      launchApp();
+      return;
+    }
+
+    // 成功 / 失败回调分开传递：launchApp 内部异常不应被当成 token 失效或网络错误处理
+    checking.then(function (user) {
+      // 刷新用户信息（后端可能更新 scope / 名称），token 保持不变
+      if (user) S.login({ token: S.token(), user: user });
+      launchApp();
+    }, function (err) {
+      if (err && err.code === 'UNAUTHORIZED') {
+        // 401：api.js 已清会话并回调 handleUnauthorized，这里兜底回登录页
+        handleUnauthorized();
+        return;
+      }
+      // 网络错误：保留本地会话，进入工作台避免白屏
+      UI.toast('无法连接认证服务，已进入离线演示模式', 'warn', 2600);
+      launchApp();
+    });
   }
 
   YL.app = {
@@ -692,6 +770,8 @@
     refreshNav: renderNav,
     applySession: applySession,
     showAlertPop: showAlertPop,
+    // 供 api.js 在收到 401 时回调：清理会话并退回登录页
+    handleUnauthorized: handleUnauthorized,
     // 供页面透传云端告警 / 链路开闭事件，保证全局实时链路不因页面重新注册而丢失
     onLiveAlert: handleLiveAlert,
     onLiveOpen: handleLiveOpen,

@@ -130,9 +130,78 @@
     return id.slice(0, 6) + '********' + id.slice(-4);
   }
 
-  function maskPhone(p) {
-    if (!p || p.length < 7) return p || '—';
+  /** 手机号脱敏：保留前 3 后 4；已含 * 原样返回（幂等） */
+  function maskPhone(phone) {
+    if (phone === null || phone === undefined || phone === '') return '—';
+    var p = typeof phone === 'string' ? phone : String(phone);
+    if (p === '') return '—';
+    if (p.indexOf('*') !== -1) return p;
+    if (p.length < 7) return p;
     return p.slice(0, 3) + '****' + p.slice(-4);
+  }
+
+  /** 姓名脱敏：保留首末字；1 字姓名整体替换为 * */
+  function maskName(name) {
+    if (name === null || name === undefined) return '';
+    var n = typeof name === 'string' ? name : String(name);
+    var len = n.length;
+    if (len === 0) return '';
+    if (len === 1) return '*';
+    if (len === 2) return n.charAt(0) + '*';
+    var stars = '';
+    for (var i = 0; i < len - 2; i++) stars += '*';
+    return n.charAt(0) + stars + n.charAt(len - 1);
+  }
+
+  /** 地址脱敏：按村 / 社区 / 街道 / 镇逐级截取，去掉门牌等详细信息 */
+  function maskAddress(addr) {
+    if (addr === null || addr === undefined) return '';
+    var s = typeof addr === 'string' ? addr : String(addr);
+    s = s.replace(/^\s+|\s+$/g, '');
+    if (!s) return s;
+    var keys = ['村', '社区', '街道', '镇'];
+    for (var i = 0; i < keys.length; i++) {
+      var idx = s.indexOf(keys[i]);
+      if (idx !== -1) return s.slice(0, idx + keys[i].length);
+    }
+    return s;
+  }
+
+  /**
+   * 是否可查看明文（脱敏开关）。
+   * 必须同时满足两个条件才返回 true：
+   *   1. store.role() === 'admin'；
+   *   2. 存在有效会话：store.session() 为对象，其 user 为非空对象且 user.role === 'admin'。
+   * 注意：store.role() 在无会话时会回落为 'admin'，只看角色会造成 fail-open，
+   * 因此无会话（或会话失效）时一律按无权限处理，返回 false。
+   * 离线演示会话（session.offline === true）同样属于有效会话，故不校验 token。
+   * 运行时动态读取 store，避免加载顺序问题；全程只读 store，不触碰 DOM / localStorage。
+   */
+  function canSeeRaw() {
+    try {
+      var root = global && global.YL;
+      if (!root || !root.store) return false;
+      if (typeof root.store.role !== 'function') return false;
+      if (root.store.role() !== 'admin') return false;
+      if (typeof root.store.session !== 'function') return false;
+
+      var sess = root.store.session();
+      if (!sess || typeof sess !== 'object') return false;
+
+      var user = sess.user;
+      if (!user || typeof user !== 'object') return false;
+
+      // user 必须是非空对象，避免 {} 之类的空壳会话被当作有效会话
+      var isEmpty = true;
+      for (var key in user) {
+        if (Object.prototype.hasOwnProperty.call(user, key)) { isEmpty = false; break; }
+      }
+      if (isEmpty) return false;
+
+      return user.role === 'admin';
+    } catch (e) {
+      return false;
+    }
   }
 
   /* ---------------- 伪随机（固定种子，保证每次打开数据一致） ---------------- */
@@ -255,7 +324,8 @@
     clear: clear, pad2: pad2, num: num, fmt: fmt, pct: pct, clamp: clamp,
     fmtDate: fmtDate, fmtDateCN: fmtDateCN, fmtClock: fmtClock, relTime: relTime,
     daysAgo: daysAgo, daysFromNow: daysFromNow, ageFromBirth: ageFromBirth, WEEK: WEEK,
-    maskIdCard: maskIdCard, maskPhone: maskPhone,
+    maskIdCard: maskIdCard, maskPhone: maskPhone, maskName: maskName,
+    maskAddress: maskAddress, canSeeRaw: canSeeRaw,
     rng: rng, randInt: randInt, pick: pick, pickMany: pickMany, round: round,
     download: download, toCSV: toCSV, csvCell: csvCell,
     countUp: countUp, stagger: stagger, debounce: debounce, scrollTop: scrollTop,

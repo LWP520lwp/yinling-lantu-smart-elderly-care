@@ -4,11 +4,11 @@
     "userID": "hid_ci_e9ypas3l817g",
     "domainID": "hid_ci_e9ypas3l817g",
     "type": "Programming language",
-    "content": "后端偏好 Python 3.10+，前端使用原生 JavaScript。",
+    "content": "Prefers ES5-style native JavaScript for frontend, using var, IIFE, and (function(global){...})(window).",
     "remark": "new",
     "namespace": "DevMate",
     "createTime": "2026-11-05T05:10:24.479Z",
-    "updateTime": "2026-11-05T05:10:24.479Z",
+    "updateTime": "2026-11-05T06:49:15.870Z",
     "isDeleted": false
   },
   {
@@ -16,11 +16,11 @@
     "userID": "hid_ci_e9ypas3l817g",
     "domainID": "hid_ci_e9ypas3l817g",
     "type": "Frontend framework",
-    "content": "prefers a native HTML/CSS/JavaScript single-page app with no frontend framework and no build tools",
+    "content": "Prefers a zero-framework, zero-build native HTML/CSS/JS single-page frontend; no npm, webpack, vite, React/Vue, or new frontend dependencies; must run by double-clicking index.html via file://.",
     "remark": "new",
     "namespace": "DevMate",
     "createTime": "2026-11-05T05:10:24.495Z",
-    "updateTime": "2026-11-05T05:43:38.061Z",
+    "updateTime": "2026-11-05T06:49:15.851Z",
     "isDeleted": false
   },
   {
@@ -28,11 +28,11 @@
     "userID": "hid_ci_e9ypas3l817g",
     "domainID": "hid_ci_e9ypas3l817g",
     "type": "Backend framework",
-    "content": "后端采用最小 FastAPI 应用，配合 uvicorn 启动、httpx 原生流式调用、python-dotenv 配置、pydantic 校验；明确不引入 openai SDK。",
+    "content": "Prefers a minimal FastAPI + uvicorn + httpx + python-dotenv + pydantic v2 backend; no ORM, no openai SDK, and no new dependencies.",
     "remark": "new",
     "namespace": "DevMate",
     "createTime": "2026-11-05T05:10:24.503Z",
-    "updateTime": "2026-11-05T05:10:24.503Z",
+    "updateTime": "2026-11-05T06:49:15.861Z",
     "isDeleted": false
   },
   {
@@ -64,11 +64,11 @@
     "userID": "hid_ci_e9ypas3l817g",
     "domainID": "hid_ci_e9ypas3l817g",
     "type": "Language preference",
-    "content": "使用中文进行交互、system prompt 和代码注释，技术术语或变量名可使用准确英文。",
+    "content": "Communicates in Chinese and wants Chinese code comments consistent with the existing style (no redundant comments), while code naming and variable names stay English.",
     "remark": "new",
     "namespace": "DevMate",
     "createTime": "2026-11-05T05:10:24.520Z",
-    "updateTime": "2026-11-05T05:10:24.520Z",
+    "updateTime": "2026-11-05T07:26:22.033Z",
     "isDeleted": false
   },
   {
@@ -93,6 +93,66 @@
     "namespace": "DevMate",
     "createTime": "2026-11-05T05:10:24.537Z",
     "updateTime": "2026-11-05T05:43:38.089Z",
+    "isDeleted": false
+  },
+  {
+    "id": "c66a28847d384c52a0a1d33c0bbc3d9b",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Programming language",
+    "content": "Prefers Python standard library for backend auth (hmac, hashlib, base64, json, time, secrets) and avoids JWT, passlib, bcrypt, and pydantic-settings.",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T06:49:15.879Z",
+    "updateTime": "2026-11-05T06:49:15.879Z",
+    "isDeleted": false
+  },
+  {
+    "id": "18469d16b18146038ab2c40ffd9c5e10",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Explanation preference",
+    "content": "Prefers concise output including git diff summaries and verification results; wants minimal extra comments and no automatic commits.",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T06:49:15.898Z",
+    "updateTime": "2026-11-05T11:17:43.329Z",
+    "isDeleted": false
+  },
+  {
+    "id": "2b197b3d9b9947aa8077c979e94168fc",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Programming language",
+    "content": "Uses Python for backend work, with pydantic v2 models configured as extra=\"ignore\".",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T07:26:22.022Z",
+    "updateTime": "2026-11-05T07:26:22.022Z",
+    "isDeleted": false
+  },
+  {
+    "id": "bb284080bf854b329bbffd8a433f2975",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Explanation preference",
+    "content": "Prefers minimal, surgical changes: read the existing code before modifying, avoid refactoring unrelated code, and do not alter the business semantics of mock data.",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T07:26:22.043Z",
+    "updateTime": "2026-11-05T07:26:22.043Z",
+    "isDeleted": false
+  },
+  {
+    "id": "fd73e102b7844d888d9307e0228e67b0",
+    "userID": "hid_ci_e9ypas3l817g",
+    "domainID": "hid_ci_e9ypas3l817g",
+    "type": "Role setting",
+    "content": "Delegates work to specialized subagent roles (e.g., coding-engineer for implementation, team-result-verifier for verification, team-mate for cleanup) with explicit task ids.",
+    "remark": "new",
+    "namespace": "DevMate",
+    "createTime": "2026-11-05T07:26:22.052Z",
+    "updateTime": "2026-11-05T07:26:22.052Z",
     "isDeleted": false
   }
 ]

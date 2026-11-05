@@ -5,6 +5,9 @@
 - 单条 ``content`` 长度上限 4000（去除首尾空白后不能为空）；
 - ``role`` 仅允许 user / assistant / system；
 - ``age`` 取值 0 - 130；
+- 登录模型：``account`` 去首尾空白且 ≤64，``password`` 原样保留且 1-128；
+- 审计上报：``action`` 限定在白名单内，``detail`` 序列化后 ≤512 字符且不得
+  含口令 / 令牌等敏感词，``actor`` / ``ip`` / ``ts`` 由服务端补齐；
 - 其余未知字段一律忽略，保证前端传入 ``id`` / ``member`` 等扩展字段不会 422。
 
 校验失败时由 FastAPI 自动返回 422 与详细错误信息。
@@ -12,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -20,6 +24,38 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 MAX_CONTENT_LENGTH: int = 4000
 MAX_MESSAGES: int = 30
 MAX_CHRONIC_ITEMS: int = 20
+# 登录字段上限：账号 64、口令 128（只限长度，不对口令做任何清洗）
+MAX_ACCOUNT_LENGTH: int = 64
+MAX_PASSWORD_LENGTH: int = 128
+
+# 审计动作白名单：只允许真实业务会产生的事件，白名单外的 action 直接 422
+AUDIT_ACTIONS: frozenset[str] = frozenset(
+    {
+        "login",
+        "logout",
+        "ai_chat",
+        "elder_view",
+        "elder_export",
+        "report_export",
+        "alert_handle",
+        "alert_false_alarm",
+        "device_command",
+    }
+)
+# 审计 detail 序列化后的长度上限；超长说明误传了正文 / 批量明细，直接拒绝
+MAX_AUDIT_DETAIL_LENGTH: int = 512
+# 审计敏感词（大小写不敏感）：命中说明误传了口令 / 令牌，直接拒绝落库
+AUDIT_SENSITIVE_WORDS: tuple[str, ...] = (
+    "password",
+    "passwd",
+    "pwd",
+    "token",
+    "secret",
+    "credential",
+    "access_key",
+    "secret_key",
+    "ak_sk",
+)
 
 
 class ChatMessage(BaseModel):
@@ -183,3 +219,154 @@ class DeviceCommand(BaseModel):
         if not text:
             raise ValueError("字段不能为空或仅包含空白字符")
         return text
+
+
+class LoginRequest(BaseModel):
+    """``POST /api/auth/login`` 请求体。
+
+    - ``account``：去首尾空白、大小写不敏感，最长 64 字符；
+    - ``password``：**原样保留**（不 strip 内部或首尾空格），仅限制 1-128 字符，
+      避免把用户真实口令里的空格清掉导致校验失败；
+    - ``role``：前端选择的角色，可选；传了就必须与账号实际角色一致。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    account: str = Field(
+        ...,
+        max_length=MAX_ACCOUNT_LENGTH,
+        description=f"登录账号，最长 {MAX_ACCOUNT_LENGTH} 个字符",
+    )
+    password: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_PASSWORD_LENGTH,
+        description=f"登录口令，1-{MAX_PASSWORD_LENGTH} 个字符，原样参与校验",
+    )
+    role: Optional[str] = Field(
+        default=None,
+        max_length=16,
+        description="期望登录的角色（admin / social / family），缺省表示不校验",
+    )
+
+    @field_validator("account", mode="before")
+    @classmethod
+    def _normalize_account(cls, value: Any) -> Any:
+        """去除首尾空白；纯空白直接判为非法。"""
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                raise ValueError("account 不能为空或仅包含空白字符")
+            return text
+        return value
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _normalize_role(cls, value: Any) -> Any:
+        """兼容前端可能传入的空串 / 大小写 / 前后空格。"""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            text = value.strip().lower()
+            return text or None
+        return value
+
+
+class AuditCreate(BaseModel):
+    """``POST /api/audit`` 请求体：前端上报的业务操作审计。
+
+    ``action`` 仅允许 :data:`AUDIT_ACTIONS` 白名单内的动作；``actor_id`` /
+    ``actor_name`` / ``role`` / ``ip`` / ``ts`` 由服务端依据 token 与请求补齐，
+    请求体中即使出现也会被 ``extra="ignore"`` 丢弃。``detail`` 为 dict / list 时
+    原样交给存储层序列化为 JSON，序列化后 ≤512 字符且不得含口令 / 令牌等敏感词。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    action: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="操作标识，必须在白名单内，如 login / elder_view",
+    )
+    target_type: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description="操作对象类型，如 elder / report / device",
+    )
+    target_id: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="操作对象 ID",
+    )
+    result: Optional[str] = Field(
+        default=None,
+        max_length=16,
+        description="结果标识，如 ok / failed / disabled",
+    )
+    detail: Optional[Union[Dict[str, Any], List[Any], str]] = Field(
+        default=None,
+        description=f"补充业务字段；序列化后不得超过 {MAX_AUDIT_DETAIL_LENGTH} 个字符",
+    )
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _strip_action(cls, value: Any) -> Any:
+        """去除首尾空白；纯空白由 ``min_length`` 判定为非法。"""
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("action")
+    @classmethod
+    def _validate_action(cls, value: str) -> str:
+        """白名单校验：只接受真实业务产生的操作，避免伪造审计记录。"""
+        if value not in AUDIT_ACTIONS:
+            raise ValueError(f"不支持的审计动作：{value}")
+        return value
+
+    @field_validator("detail")
+    @classmethod
+    def _validate_detail(cls, value: Any) -> Any:
+        """序列化后限制长度并拦截敏感词，避免把口令 / 令牌写进审计。"""
+        if value is None:
+            return None
+        if isinstance(value, (dict, list)):
+            text = json.dumps(value, ensure_ascii=False, default=str)
+        else:
+            text = str(value)
+        if len(text) > MAX_AUDIT_DETAIL_LENGTH:
+            raise ValueError(
+                f"detail 序列化后不能超过 {MAX_AUDIT_DETAIL_LENGTH} 个字符"
+            )
+        lowered = text.lower()
+        for word in AUDIT_SENSITIVE_WORDS:
+            if word in lowered:
+                raise ValueError(f"detail 不能包含敏感字段：{word}")
+        return value
+
+
+class UserOut(BaseModel):
+    """对外暴露的用户信息。
+
+    ``scope`` 为数据范围：管理员为"全域"，社工为其所属村居，家属为老人 ID。
+    **不包含**密码哈希等敏感字段。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(..., description="用户 ID，例如 U001")
+    name: str = Field(..., description="姓名")
+    account: str = Field(..., description="登录账号")
+    role: str = Field(..., description="角色：admin / social / family")
+    scope: str = Field(..., description="数据范围：全域 / 村居名 / 老人 ID")
+
+
+class LoginResponse(BaseModel):
+    """``POST /api/auth/login`` 成功响应。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    token: str = Field(..., description="访问口令，后续请求放在 Authorization: Bearer <token>")
+    expires_at: int = Field(..., description="token 过期时间，秒级 UTC 时间戳")
+    user: UserOut = Field(..., description="登录用户信息")

@@ -18,16 +18,26 @@
     { key: 'device', label: '设备状态' }
   ];
 
+  /** 仅返回当前账号已绑定的老人；未绑定返回 null，不回退 mock 数据避免越权展示 */
   function myElder() {
-    return S.elders()[0] || D.ELDERS[0];
+    return S.elders()[0] || null;
   }
 
   function render(container, route) {
     var elder = myElder();
+    if (!elder) {
+      container.innerHTML = '<div class="page">' +
+        UI.empty('shield', '尚未绑定老人', '当前账号还没有绑定老人档案，请联系村居社工完成绑定。',
+          '<a class="btn btn-primary" href="#/family">刷新</a>') +
+        '</div>';
+      YL.hydrateIcons(container);
+      return;
+    }
     var tab = (route.query && route.query.tab) || 'overview';
     if (!TABS.some(function (t) { return t.key === tab; })) tab = 'overview';
     var v = elder.lastVitals;
-    var device = S.devices()[0] || D.DEVICES[0];
+    /* 仅取当前账号绑定的设备，不回退 mock 设备 */
+    var device = S.devices()[0];
 
     container.innerHTML =
       '<div class="page page-family">' +
@@ -40,9 +50,9 @@
                 '<span class="tag tag-outline">' + D.DICT.member[elder.member].text + '</span></div>' +
               '<p>' + elder.gender + ' · ' + elder.age + ' 岁 · ' + U.esc(elder.village) + ' · 家属 ' + U.esc(elder.familyName) + '（' + U.esc(elder.relation) + '）</p>' +
               '<div class="family-hero-tags">' +
-                '<span class="status online"><span class="dot"></span>手环在线</span>' +
+                '<span class="status online"><span class="dot"></span>' + (device ? '手环在线' : '未绑定手环') + '</span>' +
                 '<span>' + U.relTime(v.at) + '更新体征数据</span>' +
-                '<span class="num">' + U.esc(device.id) + '</span>' +
+                '<span class="num">' + (device ? U.esc(device.id) : '—') + '</span>' +
               '</div>' +
             '</div>' +
           '</div>' +
@@ -137,7 +147,13 @@
     }
 
     if (tab === 'device') {
+      /* 已绑定老人但未绑定设备：渲染空态，避免访问 device 字段报错 */
+      if (!device) {
+        return UI.empty('watch', '暂未绑定设备', '该老人暂未绑定智能手环，绑定后即可查看设备状态与电量。');
+      }
       var battery = device.battery;
+      /* 老人个人号码不展示明文，仅管理员放行；SOS 热线始终明文 */
+      var raw = U.canSeeRaw();
       return '<div class="family-device-grid">' +
         '<div class="card">' +
           '<div class="card-head"><div class="card-title">' + YL.icon('watch') + '手环状态</div>' +
@@ -163,9 +179,9 @@
           '<div class="card-head"><div class="card-title">' + YL.icon('phone') + '紧急联系</div></div>' +
           '<div class="card-body">' +
             '<div class="family-sos">' +
-              '<b class="num">' + U.maskPhone(elder.phone) + '</b>' +
+              '<b class="num">' + (raw ? U.esc(elder.phone) : U.maskPhone(elder.phone)) + '</b>' +
               '<span>长按手环侧键 3 秒自动拨打</span>' +
-              '<button type="button" class="btn btn-soft" data-call-family>' + YL.icon('phone') + '拨打家属电话</button>' +
+              (raw ? '<button type="button" class="btn btn-soft" data-call-family>' + YL.icon('phone') + '拨打家属电话</button>' : '') +
             '</div>' +
             '<div class="divider"></div>' +
             '<dl class="kv-list">' +
@@ -256,7 +272,13 @@
     var callBtn = container.querySelector('[data-call-family]');
     if (callBtn) {
       callBtn.addEventListener('click', function () {
+        /* 家属视图不提供完整号码，按钮默认不渲染，此处兜底 */
+        if (!U.canSeeRaw()) {
+          UI.toast('为保护隐私，家属视图不展示完整号码', 'info');
+          return;
+        }
         var elder = myElder();
+        if (!elder) return;
         UI.phoneModal(elder.phone, elder.familyName, elder.relation);
       });
     }

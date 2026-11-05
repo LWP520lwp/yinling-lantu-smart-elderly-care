@@ -37,14 +37,14 @@ backend/
 | 文件 | 职责 |
 | --- | --- |
 | `app/config.py` | 从 `backend/.env` 加载配置，`.env` 路径基于文件位置推导，任意目录启动都能读到；IoT 是否启用由派生属性判断 |
-| `app/schemas.py` | 校验对话请求：消息 1-30 条、单条 ≤4000 字、年龄 0-130；另含命令下发模型 `DeviceCommand` |
+| `app/schemas.py` | 校验对话请求：消息 1-30 条、单条 ≤4000 字、年龄 0-130；另含命令下发模型 `DeviceCommand` 与审计上报模型 `AuditCreate`（`extra="ignore"`） |
 | `app/prompts.py` | 生成包含老人档案与安全边界的中文 system prompt |
 | `app/llm.py` | 优先调用 MaaS 流式接口，失败/无 Key 时用本地模板模拟流式输出 |
-| `app/main.py` | 暴露 HTTP / SSE / WebSocket 接口，管理 CORS 与 IoT 资源启停 |
+| `app/main.py` | 暴露 HTTP / SSE / WebSocket 接口，管理 CORS 与 IoT 资源启停；审计接口 `POST /api/audit`、`GET /api/audit/logs` 及登录 / 对话 / 命令下发内部的审计写入都在此处 |
 | `app/iot/device_simulator.py` | 用 PC 模拟手环直连 IoTDA MQTT 8883，周期上报体征并接收云端命令 |
 | `app/iot/amqp_consumer.py` | 订阅 IoTDA 规则引擎转发的 AMQP 队列，解析消息体后交给 processor |
 | `app/iot/processor.py` | `handle_frame()`：落库 → 判阈 → 冷却去重 → 告警落库 → WS 广播 |
-| `app/iot/storage.py` | 建表 `init_db()` 与 5 个业务函数（`insert_vitals` / `insert_alert` / `recent_vitals` / `recent_alerts` / `stats`），上层不写 SQL |
+| `app/iot/storage.py` | 建表 `init_db()` 与 7 个业务函数（`insert_vitals` / `insert_alert` / `recent_vitals` / `recent_alerts` / `insert_audit` / `recent_audits` / `stats`），含 `audit_logs` 表，上层不写 SQL |
 | `app/iot/ws.py` | 维护 WS 连接，`publish_threadsafe()` 支持从 AMQP 同步线程安全广播 |
 
 > **P1 带来的环境变量与依赖变化**：`.env.example` 追加了 `IOTDA_*`、`IOTDB_PATH`、
@@ -94,7 +94,7 @@ python -m app.main
 | `MAAS_MODEL` | `deepseek-v4-flash` | 模型名称，需与 MaaS 控制台开通的一致 |
 | `MAAS_BASE_URL` | `https://api.modelarts-maas.com/v2/chat/completions` | OpenAI 兼容的 chat completions 地址 |
 | `APP_PORT` | `8000` | `python -m app.main` 启动时监听的端口 |
-| `CORS_ORIGINS` | `*` | 允许的来源，多个用英文逗号分隔 |
+| `CORS_ORIGINS` | `http://localhost:8080,http://127.0.0.1:8080,http://localhost:5500,http://127.0.0.1:5500,null` | 允许的来源，多个用英文逗号分隔；`null` 对应 file:// 双击演示 |
 
 > `.env` 已被 `.gitignore` 忽略，请勿把密钥提交到仓库；代码中没有任何硬编码密钥。
 
@@ -182,6 +182,15 @@ data: {"type":"error","message":"模型输出中断，请稍后重试"}
 - 文本中的换行在 JSON 里转义为 `\n`，前端 `JSON.parse` 后可正确还原；
 - 响应头包含 `cache-control: no-cache`、`x-accel-buffering: no`，避免代理缓冲。
 
+### 3. 审计日志
+
+| 方法 | 路径 | 鉴权 | 说明 |
+| --- | --- | --- | --- |
+| `POST` | `/api/audit` | 登录即可（`require_auth`） | 前端上报业务操作；成功 **201** `{"ok":true,"id":"AU..."}`，写库失败 **200** `{"ok":false}` |
+| `GET` | `/api/audit/logs?limit=100&action=` | 仅管理员（`require_roles("admin")`） | 按 `ts` 倒序返回 `{"items":[...]}`；社工 / 家属返回 **403** |
+
+请求字段、表结构、ID 规则与逐条验证命令见[十七、审计日志](#十七审计日志)。
+
 ## 五、降级策略
 
 | 场景 | 行为 |
@@ -211,10 +220,15 @@ data: {"type":"error","message":"模型输出中断，请稍后重试"}
 
 **3. 浏览器报 CORS 错误**
 
-- `.env` 中 `CORS_ORIGINS=*` 时服务端返回 `Access-Control-Allow-Origin: *`，
-  此时不允许携带 Cookie（本项目 `allow_credentials=False`，符合规范）；
-- 若前端使用固定域名，建议改成精确来源，如
-  `CORS_ORIGINS=http://127.0.0.1:5500,http://localhost:5500`；
+- 后端默认只放行显式白名单：`http://localhost:8080`、`http://127.0.0.1:8080`、
+  `http://localhost:5500`、`http://127.0.0.1:5500` 与 `null`；
+- `null` 是浏览器从 file:// 页面（双击 `index.html`）发起请求时携带的 Origin 字面量，
+  **不能删除**，否则本地演示的所有接口请求都会被浏览器拦截；
+- 用其他端口启动静态服务器时，把对应来源追加到 `CORS_ORIGINS`，如
+  `CORS_ORIGINS=http://localhost:8081,http://127.0.0.1:8081,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5500,http://127.0.0.1:5500,null`；
+- 仅本机临时排查时可填 `CORS_ORIGINS=*`，服务端会返回 `Access-Control-Allow-Origin: *`
+  并在启动日志打印中文 warning；此时不允许携带 Cookie（本项目 `allow_credentials=False`，符合规范）；
+- 生产环境禁止填 `*`；
 - 修改后重启服务。
 
 **4. 端口被占用（`[Errno 10048]`）**
@@ -466,7 +480,7 @@ Stop-Process -Id <PID> -Force
 | `MAAS_MODEL` | `deepseek-v4-flash` | 否 | 需与 MaaS 控制台已开通模型一致 |
 | `MAAS_BASE_URL` | `https://api.modelarts-maas.com/v2/chat/completions` | 否 | OpenAI 兼容地址 |
 | `APP_PORT` | `8000` | 否 | `python -m app.main` 的监听端口 |
-| `CORS_ORIGINS` | `*` | 否 | 逗号分隔；`*` 时强制 `allow_credentials=False` |
+| `CORS_ORIGINS` | `http://localhost:8080,http://127.0.0.1:8080,http://localhost:5500,http://127.0.0.1:5500,null` | 否 | 逗号分隔的显式白名单；`null` 为 file:// 页面来源；仅显式填 `*` 时才放开全部来源，此时强制 `allow_credentials=False` |
 
 ### 2. P1（IoTDA 设备侧 MQTT）
 
@@ -820,14 +834,17 @@ curl.exe -i -X POST "http://127.0.0.1:8000/api/device/command" `
 `app/iot/storage.py` 是**唯一**接触 SQL 的模块，`processor.py` 与 `main.py` 只调用它的函数，
 因此切换到 GaussDB 时**不需要改** `processor.py` / `main.py` / `ws.py` / 前端任何代码。
 
-需要保持同名、同语义的 **5 个业务函数**与 1 个建库函数：
+需要保持同名、同语义的 **7 个业务函数**与 1 个建库函数：
 
 ```python
-# —— 5 个业务函数：processor.py / main.py 只调用这些 ——
+# —— 7 个业务函数：processor.py / main.py 只调用这些 ——
 def insert_vitals(frame: Dict[str, Any]) -> bool:                           # 写一帧体征
 def insert_alert(alert: Dict[str, Any]) -> bool:                            # 写一条告警（同 id 幂等覆盖）
 def recent_vitals(device_id: str, limit: int = 20) -> List[Dict[str, Any]]  # 按时间倒序
 def recent_alerts(limit: int = 20) -> List[Dict[str, Any]]                  # 结构与前端告警对象一致
+def insert_audit(record: Dict[str, Any]) -> bool                            # 写一条审计（id 由本层生成）
+def recent_audits(limit: int = 100, actor: Optional[str] = None,
+                  action: Optional[str] = None) -> List[Dict[str, Any]]     # 按 ts 倒序，可按 actor / action 过滤
 def stats() -> Dict[str, Any]                                               # vitals_count / alerts_count / pending_alerts_count
 
 # —— 建库函数：lifespan 启动时调用一次 ——
@@ -1004,3 +1021,302 @@ CREATE TABLE IF NOT EXISTS alerts (
   不要复用管理员 AK/SK；token 只在单次请求内存中传递，不写文件、不写日志；
 - **轮换建议**：演示结束后在控制台重置设备密钥与 AMQP 接入凭证，并同步更新 `.env`；
   截图、录屏、提交记录中不要出现 `.env` 内容。
+
+---
+
+## 十七、审计日志
+
+> 审计与 AI 问答、IoT 实时链路**互不阻塞**：写库失败只记日志并返回 `{"ok":false}`，
+> 登录、对话、命令下发等主流程照常完成；查询失败返回空列表，不改动任何业务数据。
+
+### 1. 数据表 `audit_logs`
+
+建表语句（`backend/app/iot/storage.py` 的 `_SCHEMA`，随 `init_db()` 在启动时执行）：
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,
+    ts INTEGER NOT NULL,
+    actor_id TEXT,
+    actor_name TEXT,
+    role TEXT,
+    action TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    result TEXT,
+    ip TEXT,
+    detail TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_ts ON audit_logs(ts);
+```
+
+字段说明：
+
+| 列 | 类型 | 含义 |
+| --- | --- | --- |
+| `id` | TEXT 主键 | 审计编号，规则见第 2 节 |
+| `ts` | INTEGER | 写入时间，**秒级**时间戳（与 `vitals.event_time` 的毫秒口径不同） |
+| `actor_id` | TEXT | 操作人 ID（如 `U001`）；登录失败等匿名场景为空 |
+| `actor_name` | TEXT | 操作人姓名，由服务端按 token 的 `account` 反查用户表补齐 |
+| `role` | TEXT | 操作人角色 `admin` / `social` / `family` |
+| `action` | TEXT NOT NULL | 动作标识，如 `login` / `elder_view` / `elder_export` |
+| `target_type` | TEXT | 操作对象类型，如 `session` / `elder` / `report` / `device` |
+| `target_id` | TEXT | 操作对象 ID；批量操作可填 `batch` |
+| `result` | TEXT | 结果标识 `ok` / `failed` / `disabled` |
+| `ip` | TEXT | 请求来源 IP（取 ASGI 传输层的 `client.host`） |
+| `detail` | TEXT | 补充业务字段；写入 dict / list 时序列化为 JSON 文本，读取时自动还原为对象 |
+
+> 表里**没有**密码、token 与对话正文：登录失败只记账号与错误码，对话只记消息条数，
+> 命令下发只记命令名与结果。
+
+### 2. ID 规则
+
+- 格式：`AU` + `YYYYMMDD` + 4 位当日序号，例：`AU202611050001`；
+- 序号 = 当日已有记录数 + 1（按 `id LIKE 'AU20261105%'` 统计）；
+- 并发写入或历史记录被删导致主键冲突时，序号自动递增重试，最多 5 次；仍冲突则本次写入返回 `False`；
+- 日期取自记录 `ts`（缺省为当前时间），与告警 ID（`AL...`）同风格但前缀不同，便于区分。
+
+### 3. 写入接口 `POST /api/audit`
+
+鉴权：`Authorization: Bearer <token>`（登录即可，不限角色）。
+
+请求体（`app/schemas.py` 的 `AuditCreate`）：
+
+| 字段 | 必填 | 约束 / 说明 |
+| --- | --- | --- |
+| `action` | 是 | 1-64 字符；去首尾空白后必须属于白名单，否则 **422** |
+| `target_type` | 否 | 操作对象类型，≤ **32** 字符 |
+| `target_id` | 否 | 操作对象 ID，≤ **64** 字符 |
+| `result` | 否 | 结果标识，≤ **16** 字符 |
+| `detail` | 否 | dict / list / 字符串；序列化后 ≤ **512** 字符，且不得含敏感词 |
+
+`action` 白名单（`app/schemas.py` 的 `AUDIT_ACTIONS`，共 9 个）：
+
+`login` / `logout` / `ai_chat` / `elder_view` / `elder_export` / `report_export` /
+`alert_handle` / `alert_false_alarm` / `device_command`
+
+`detail` 校验（`AuditCreate._validate_detail`）：dict / list 先按
+`json.dumps(ensure_ascii=False, default=str)` 序列化再计长，超过 512 字符直接 **422**；
+文本转小写后若命中敏感词 `password` / `passwd` / `pwd` / `token` / `secret` /
+`credential` / `access_key` / `secret_key` / `ak_sk` 同样 **422**，避免把口令、令牌写入审计。
+
+`actor_id` / `actor_name` / `role` / `ip` / `ts` 由服务端依据 token 与请求补齐，
+请求体中即使带上也会被 `extra="ignore"` 丢弃。
+
+```powershell
+curl.exe -i -X POST "http://127.0.0.1:8000/api/audit" `
+  -H "Content-Type: application/json" `
+  -H "Authorization: Bearer <token>" `
+  -d "{\"action\":\"elder_view\",\"target_type\":\"elder\",\"target_id\":\"E01\",\"result\":\"ok\"}"
+```
+
+成功（HTTP 201）：
+
+```json
+{"ok": true, "id": "AU202611050003"}
+```
+
+写库失败（HTTP 200，前端据此静默降级，不弹错误）：
+
+```json
+{"ok": false}
+```
+
+其他状态码：
+
+| 状态码 | 场景 | 响应体 |
+| --- | --- | --- |
+| 401 | 未带 token / token 失效 | `{"code":"UNAUTHORIZED","detail":"登录状态已失效，请重新登录"}` |
+| 422 | `action` 缺失 / 纯空白 / 超过 64 字符 / 不在白名单；`target_type` > 32、`target_id` > 64、`result` > 16；`detail` 序列化后 > 512 或命中敏感词 | FastAPI 标准校验错误 |
+
+> 前端 `YL.api.audit()` 对非 2xx（含 422）一律 `.catch` 吞掉错误并 `resolve(null)`，
+> 不弹提示、不中断页面主流程。
+
+### 4. 查询接口 `GET /api/audit/logs`
+
+鉴权：`require_roles("admin")`，**只有管理员**能查全量日志。
+
+| 查询参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `limit` | `100` | 返回条数；存储层钳制在 1-500 |
+| `action` | 空 | 按动作标识**精确**过滤，如 `elder_export` |
+
+排序：`ORDER BY ts DESC, id DESC`（同一秒内按编号倒序，保证结果稳定）。
+
+```powershell
+curl.exe -i "http://127.0.0.1:8000/api/audit/logs?limit=3" `
+  -H "Authorization: Bearer <token>"
+```
+
+成功（HTTP 200）：`detail` 能解析为 JSON 时返回对象，否则原样返回字符串。
+
+```json
+{
+  "items": [
+    {
+      "id": "AU202611050003",
+      "ts": 1762345262,
+      "actor_id": "U001",
+      "actor_name": "林晓岚",
+      "role": "admin",
+      "action": "elder_view",
+      "target_type": "elder",
+      "target_id": "E01",
+      "result": "ok",
+      "ip": "127.0.0.1",
+      "detail": null
+    }
+  ]
+}
+```
+
+权限差异：
+
+| 角色 | 结果 |
+| --- | --- |
+| `admin` | 200，返回 `{"items":[...]}`，页面「系统设置 → 操作日志」显示真实数据 |
+| `social` / `family` | **403** `{"code":"FORBIDDEN","detail":"当前账号无权执行该操作"}` |
+| 未登录 / token 失效 | **401**，先于角色判断返回，不泄露日志是否存在 |
+
+> 两个接口的 403 / 401 响应体由统一的 `AuthError` 处理器输出，格式与 `/api/chat` 等接口一致。
+
+### 5. 自动写入点（服务端）
+
+| 接口 | `action` | `target_type` | `result` | `detail` |
+| --- | --- | --- | --- | --- |
+| `POST /api/auth/login` 成功 | `login` | `session` | `ok` | 空 |
+| `POST /api/auth/login` 失败 | `login` | `session` | `failed` | `{"account":"...","reason":"INVALID_CREDENTIALS"}` |
+| `POST /api/chat` | `ai_chat` | `chat` | `ok` | `{"messages":1}`（仅条数，不含正文） |
+| `POST /api/device/command` | `device_command` | `device` | `ok` / `failed` / `disabled` | `{"command_name":"restart"}`，失败时附 `reason` |
+
+- 登录成功时 actor 取自 token（`sub` / `account` / `role`），姓名再查一次用户表补齐；
+- 登录失败时尚无 token，`actor_id` / `actor_name` / `role` 留空，只记账号与错误码
+  （`reason` 取 `AuthError.code`，如 `INVALID_CREDENTIALS` / `ACCOUNT_DISABLED` / `ROLE_MISMATCH` / `TOO_MANY_ATTEMPTS`）；
+- 命令下发无论成功、上游失败（502）还是能力未启用（503），都会各写一条审计，
+  其中 `failed` 的 `detail.reason` 为 `upstream_http` / `network` / `response`。
+
+### 6. 前端上报的动作（`YL.api.audit(action, payload)`）
+
+> 登录成功与失败的审计由后端 `POST /api/auth/login` 内部统一写入，前端**不重复上报**；
+> 前端只上报 `logout` 及业务操作，避免一次登录产生两条 `login` 记录。
+
+| 页面 / 模块 | `action` | 触发时机 |
+| --- | --- | --- |
+| `assets/js/app.js` | `logout` | 右上角退出登录（`target_type=session`） |
+| `assets/js/pages/elders.js` | `elder_view` | 打开老人档案详情 |
+| `assets/js/pages/elders.js` | `elder_export` | 导出老人档案（单个档案记 ID，批量记 `batch`，`detail` 只含条数与编号） |
+| `assets/js/pages/reports.js` | `report_export` | 导出数据报表 |
+| `assets/js/pages/alerts.js` | `alert_handle` / `alert_false_alarm` | 告警处置 / 标记误报 |
+
+前端 action 全集为 `logout` / `elder_view` / `elder_export` / `report_export` /
+`alert_handle` / `alert_false_alarm`；`login` / `ai_chat` / `device_command`
+由服务端写入（见第 5 节），不在前端上报之列。
+
+`api.js` 的 `audit()` 只透传 `target_type` / `target_id` / `result` / `detail`，其余字段丢弃；
+无 token、后端不可用、返回非 2xx（含 422 校验失败）时一律吞掉错误并 `resolve(null)`，调用方无需 `then/catch`。
+
+### 7. 降级说明：审计写入失败不影响主流程
+
+| 环节 | 失败表现 | 对业务的影响 |
+| --- | --- | --- |
+| `storage.insert_audit()` | 捕获 `sqlite3.Error` 与预处理异常，记 error 日志并返回 `False`，不外抛 | 无，其他写入照常 |
+| `main._write_audit()` | 整体 `try/except` 兜底，失败返回 `(False, "")` | 调用它的登录 / 对话 / 命令下发继续执行 |
+| `POST /api/audit` | 返回 **200** `{"ok":false}`（而非 5xx） | 前端静默降级，业务操作不中断 |
+| `GET /api/audit/logs` | `recent_audits()` 返回 `[]`，接口仍是 200 | 前端按真实空列表处理，显示「暂无审计记录」，**不**回退演示数据 |
+| 前端 `YL.api.audit()` | `.catch` 吞掉错误，仅 `console.debug` 一行 | 页面无报错、无 loading 残留 |
+| 设置页「操作日志」loading | 请求进行中只显示「正在加载审计日志…」占位，**不渲染** mock | 避免把演示数据当成真实日志 |
+| 设置页「操作日志」真实空列表 | 接口成功但 `items` 为空 → 显示空状态「暂无审计记录」，隐藏降级标注 | 空列表是真实结果，不降级 |
+| 设置页「操作日志」请求失败 | 失败 / 超时 / 响应非法 / API 不可用 → 回退 `D.LOGS` | 列表上方标注「当前为演示数据（审计服务未连接）」 |
+
+常见触发条件：`data/` 目录不可写、`iot.db` 被其他进程长时间独占、库文件被替换后缺少
+`audit_logs` 表。任一情况都不会返回 500，也不会阻断登录或业务操作。
+
+### 8. 验证命令（PowerShell，逐条可粘贴）
+
+> 以下命令均在 `backend` 目录、已激活 `.venv`、后端已监听 8000 端口的前提下执行。
+> 演示账号口令为 `123456`（与根目录 README 的演示账号表一致），不是任何云服务密钥。
+
+#### 8.1 admin 登录 → 取 token → 查日志
+
+```powershell
+# 1) 管理员登录取 token（只存在本机变量里，不落文件）
+$admin = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/auth/login" -Method Post `
+  -ContentType "application/json" `
+  -Body ([System.Text.Encoding]::UTF8.GetBytes('{"account":"admin","password":"123456"}'))
+$token = $admin.token
+
+# 2) 查最近 5 条审计（期望 200，items 非空）
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/audit/logs?limit=5" `
+  -Headers @{ Authorization = "Bearer $token" } | ConvertTo-Json -Depth 5
+
+# 3) 按动作过滤（期望只返回导出类记录）
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/audit/logs?action=elder_export" `
+  -Headers @{ Authorization = "Bearer $token" } | ConvertTo-Json -Depth 5
+```
+
+#### 8.2 主动写一条审计 → 立刻回查
+
+```powershell
+curl.exe -i -X POST "http://127.0.0.1:8000/api/audit" `
+  -H "Content-Type: application/json" `
+  -H "Authorization: Bearer $token" `
+  -d "{\"action\":\"elder_view\",\"target_type\":\"elder\",\"target_id\":\"E01\",\"result\":\"ok\"}"
+# 期望 HTTP 201 + {"ok":true,"id":"AU20261105xxxx"}（末 4 位为当日序号）
+
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/audit/logs?limit=1" `
+  -Headers @{ Authorization = "Bearer $token" } | ConvertTo-Json -Depth 5
+```
+
+#### 8.3 social 登录 → 查日志应 403
+
+```powershell
+$social = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/auth/login" -Method Post `
+  -ContentType "application/json" `
+  -Body ([System.Text.Encoding]::UTF8.GetBytes('{"account":"shegong01","password":"123456"}'))
+
+# 期望 HTTP 403 + {"code":"FORBIDDEN","detail":"当前账号无权执行该操作"}
+curl.exe -i "http://127.0.0.1:8000/api/audit/logs?limit=5" `
+  -H "Authorization: Bearer $($social.token)"
+```
+
+对照：不带 token 的 `curl.exe -i "http://127.0.0.1:8000/api/audit/logs"` 应返回 **401**。
+
+#### 8.4 查 SQLite 落库
+
+```powershell
+sqlite3 data/iot.db "select id, ts, actor_id, actor_name, role, action, target_id, result from audit_logs order by ts desc limit 10;"
+```
+
+若系统未安装 `sqlite3` 命令行，用标准库替代：
+
+```powershell
+python -c "import sqlite3; c=sqlite3.connect('data/iot.db'); [print(r) for r in c.execute('select id,action,actor_name,result,ts from audit_logs order by ts desc limit 10')]"
+```
+
+#### 8.5 模拟写库失败（验证不影响主流程）
+
+```powershell
+# 1) 临时移走库文件，使下一次写入命中 “no such table: audit_logs”
+Rename-Item data/iot.db data/iot.db.bak
+
+# 2) 上报一条审计：期望 HTTP 200 + {"ok":false}（不是 500）
+curl.exe -i -X POST "http://127.0.0.1:8000/api/audit" `
+  -H "Content-Type: application/json" `
+  -H "Authorization: Bearer $token" `
+  -d "{\"action\":\"elder_view\",\"target_type\":\"elder\",\"target_id\":\"E01\",\"result\":\"ok\"}"
+
+# 3) 同时登录应仍正常返回，证明主流程未受影响
+curl.exe -i -X POST "http://127.0.0.1:8000/api/auth/login" `
+  -H "Content-Type: application/json" `
+  -d "{\"account\":\"admin\",\"password\":\"123456\"}"
+
+# 4) 恢复库文件（第 2、3 步会新建一个空库，先删掉再改回原名）
+if (Test-Path data/iot.db) { Remove-Item data/iot.db }
+Rename-Item data/iot.db.bak data/iot.db
+```
+
+> 第 1 步之后查询接口返回 `{"items":[]}`，前端设置页按真实空列表处理，显示空状态
+> 「暂无审计记录」并隐藏降级标注（只有请求本身失败 / 超时 / 响应非法时才回退演示数据），
+> 可一次性验证「写库失败不阻断」与「空列表不降级」两条行为。
+> 验证结束后务必恢复 `data/iot.db`，否则历史体征与告警数据会丢失。

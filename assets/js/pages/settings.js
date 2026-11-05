@@ -76,6 +76,7 @@
     if (state.tab === 'profile') bindProfile(panel);
     if (state.tab === 'security') bindSecurity(panel);
     if (state.tab === 'packages') bindPackages(panel);
+    if (state.tab === 'logs') loadLogs(panel);
   }
 
   /* ------------------------------------------------------------------
@@ -467,22 +468,262 @@
   /* ------------------------------------------------------------------
      操作日志
      ------------------------------------------------------------------ */
+  var LOG_LIMIT = 100;        // 单次拉取的审计条数
+  var LOG_TIMEOUT = 2500;     // 审计接口超时阈值（毫秒），超时即降级
+  var LOG_DETAIL_MAX = 40;    // detail 文本截断长度
+
+  // 审计 action 到中文文案的映射，未收录的动作直接展示原始标识
+  var LOG_ACTION_TEXT = {
+    login: '登录系统',
+    logout: '退出登录',
+    ai_chat: 'AI 健康问答',
+    alert_handle: '处置告警',
+    alert_false_alarm: '标记告警误报',
+    elder_view: '查看老人档案',
+    elder_export: '导出老人档案',
+    report_export: '导出数据报表',
+    device_command: '下发设备指令'
+  };
+
+  // 敏感动作在列表中打「敏感」标签，与 mock LOGS 的 level 语义保持一致
+  var LOG_SENSITIVE = {
+    login: 1, logout: 1, alert_handle: 1, alert_false_alarm: 1,
+    elder_export: 1, report_export: 1, device_command: 1
+  };
+
+  // 不进入展示文本的敏感字段名
+  var LOG_SECRET_KEY = /password|passwd|pwd|token|secret|credential|access_?key|secret_?key/i;
+
+  // 日志请求序号：只接受最后一次请求的响应，丢弃切换 Tab / 重渲染后的过期结果
+  var logRequestSeq = 0;
+
+  function isList(v) {
+    return Object.prototype.toString.call(v) === '[object Array]';
+  }
+
+  /** detail 转简短文本：字符串直接用，对象按 k=v 拼接，敏感字段剔除，过长截断 */
+  function logDetailText(detail) {
+    if (detail === null || detail === undefined || detail === '') return '';
+    var text;
+    if (typeof detail === 'string') {
+      text = detail;
+    } else if (typeof detail === 'object') {
+      var parts = [];
+      for (var k in detail) {
+        if (!Object.prototype.hasOwnProperty.call(detail, k)) continue;
+        if (LOG_SECRET_KEY.test(k)) continue;
+        var v = detail[k];
+        if (v === null || v === undefined) continue;
+        parts.push(k + '=' + (typeof v === 'object' ? '[对象]' : String(v)));
+      }
+      text = parts.join('; ');
+    } else {
+      text = String(detail);
+    }
+    text = text.replace(/\s+/g, ' ').trim();
+    return text.length > LOG_DETAIL_MAX ? text.slice(0, LOG_DETAIL_MAX) + '…' : text;
+  }
+
+  /** 审计记录 → 现有 LOGS 字段（time / user / action / ip / level） */
+  function mapAuditLog(item) {
+    var rec = item || {};
+    var ts = Number(rec.ts);
+    // 后端 ts 为秒级时间戳，兼容毫秒输入；非法值退回当前时间
+    if (!isFinite(ts) || ts <= 0) ts = Date.now();
+    else if (ts < 1e11) ts = ts * 1000;
+
+    var label = LOG_ACTION_TEXT[rec.action] || rec.action || '未知操作';
+    if (rec.target_id) label += ' ' + String(rec.target_id);
+    var detail = logDetailText(rec.detail);
+    if (detail) label += '（' + detail + '）';
+
+    var sensitive = !!(LOG_SENSITIVE[rec.action] || (rec.result && rec.result !== 'ok'));
+    return {
+      time: ts,
+      user: rec.actor_name || rec.actor_id || '系统',
+      action: label,
+      ip: rec.ip || '—',
+      level: sensitive ? 'warn' : 'info'
+    };
+  }
+
+  /** 判断响应是否为可识别的日志列表结构，避免把异常响应误判成「无记录」 */
+  function isAuditPayload(data) {
+    if (!data) return false;
+    return isList(data) || isList(data.items) || isList(data.logs);
+  }
+
+  /** 兼容 { items: [] } / { logs: [] } / 裸数组三种返回结构 */
+  function pickAuditItems(data) {
+    if (!data) return [];
+    if (isList(data)) return data;
+    if (isList(data.items)) return data.items;
+    if (isList(data.logs)) return data.logs;
+    return [];
+  }
+
+  /** 组装 Bearer 鉴权头；无 token 时按未登录处理，不阻断请求 */
+  function logAuthHeaders() {
+    var headers = { Accept: 'application/json' };
+    try {
+      var token = S && typeof S.token === 'function' ? S.token() : '';
+      if (token) headers.Authorization = 'Bearer ' + token;
+    } catch (e) {
+      /* 读取失败按未登录处理 */
+    }
+    return headers;
+  }
+
+  /**
+   * 拉取审计日志：2.5 秒超时（AbortController + 定时器双保险），
+   * 任何失败统一 reject，由调用方回退 mock 数据，不产生未捕获异常
+   */
+  function requestAuditLogs() {
+    return new Promise(function (resolve, reject) {
+      var api = YL.api;
+      if (!api || typeof global.fetch !== 'function') {
+        reject(new Error('审计接口不可用'));
+        return;
+      }
+
+      var controller = global.AbortController ? new global.AbortController() : null;
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        if (controller) { try { controller.abort(); } catch (e) { /* ignore */ } }
+        reject(new Error('审计服务响应超时'));
+      }, LOG_TIMEOUT);
+
+      function settle(fn, arg) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn(arg);
+      }
+
+      var options = { method: 'GET', headers: logAuthHeaders() };
+      if (controller) options.signal = controller.signal;
+
+      var pending;
+      try {
+        pending = global.fetch((api.API_BASE || '') + '/api/audit/logs?limit=' + LOG_LIMIT, options);
+      } catch (e) {
+        settle(reject, new Error('审计请求发起失败'));
+        return;
+      }
+
+      pending.then(function (res) {
+        if (!res || !res.ok) {
+          settle(reject, new Error('审计接口返回异常'));
+          return null;
+        }
+        return res.json();
+      }).then(function (data) {
+        settle(resolve, data);
+      }).catch(function (err) {
+        // 超时已 abort 并 reject，此处不重复上报
+        if (err && err.name === 'AbortError') return;
+        settle(reject, err || new Error('审计接口调用失败'));
+      });
+    });
+  }
+
+  /** 单行日志渲染，字段与 mock LOGS 保持一致 */
+  function logRowHtml(l) {
+    return '<tr>' +
+      '<td class="mono t-sm">' + U.fmtDate(l.time, 'MM-DD HH:mm:ss') + '</td>' +
+      '<td class="cell-strong">' + U.esc(l.user) + '</td>' +
+      '<td class="t-sm">' + U.esc(l.action) + '</td>' +
+      '<td class="mono t-xs t3">' + U.esc(l.ip) + '</td>' +
+      '<td>' + (l.level === 'warn' ? '<span class="tag tag-orange">敏感</span>' : '<span class="tag tag-gray">常规</span>') + '</td>' +
+    '</tr>';
+  }
+
+  /** 数据源状态：loading 请求中 / real 真实数据（含空列表）/ mock 降级演示数据 */
+  var LOG_SOURCE = { LOADING: 'loading', REAL: 'real', MOCK: 'mock' };
+
+  /**
+   * 写入日志表体；面板已切换（节点脱离文档）时返回 false，避免误改
+   * emptyText 为空列表（或加载中）时的占位文案
+   */
+  function renderLogRows(panel, list, emptyText) {
+    var tbody = panel.querySelector('#logRows');
+    if (!tbody || !tbody.parentNode) return false;
+    var rows = list && list.length ? list.map(logRowHtml).join('') :
+      '<tr><td colspan="5" class="t-sm t3">' + (emptyText || '暂无操作日志记录') + '</td></tr>';
+    tbody.innerHTML = rows;
+    return true;
+  }
+
+  /** 降级标注只在 mock 数据模式下显示；loading / real 一律隐藏 */
+  function toggleLogNote(panel, state) {
+    var note = panel.querySelector('#logSourceNote');
+    if (note) note.style.display = state === LOG_SOURCE.MOCK ? '' : 'none';
+  }
+
+  /**
+   * 按数据源状态渲染日志表：表体与降级标注在同一次同步更新内完成，
+   * 不存在「展示演示数据却不显示标注」的时间窗
+   * - loading：只显示加载占位，绝不渲染 mock；
+   * - real：渲染真实数据，空列表显示空状态并隐藏标注；
+   * - mock：渲染演示数据，同时显示「当前为演示数据」标注。
+   */
+  function applyLogState(panel, state, list) {
+    var rows = list || [];
+    var emptyText;
+    if (state === LOG_SOURCE.LOADING) {
+      rows = [];
+      emptyText = '正在加载审计日志…';
+    } else if (state === LOG_SOURCE.REAL) {
+      emptyText = '暂无审计记录';
+    } else {
+      emptyText = '暂无操作日志记录';
+    }
+    if (!renderLogRows(panel, rows, emptyText)) return false;
+    toggleLogNote(panel, state);
+    return true;
+  }
+
+  /**
+   * 优先请求真实审计日志，按三种状态渲染：
+   * 请求中 → 加载占位；成功（含空列表）→ 真实数据 / 空状态；
+   * 失败、超时、API 不可用 → 回退 mock 并显示降级标注。
+   * 全程不弹错误提示。
+   */
+  function loadLogs(panel) {
+    var fallback = D.LOGS || [];
+    var seq = ++logRequestSeq;
+    // 请求期间只展示加载占位，避免把演示数据当作真实日志呈现
+    applyLogState(panel, LOG_SOURCE.LOADING, null);
+
+    requestAuditLogs().then(function (data) {
+      if (seq !== logRequestSeq) return;   // 已切换 Tab 或重新渲染，丢弃过期响应
+      if (!isAuditPayload(data)) {
+        // 200 但返回结构不可识别，按接口不可用处理
+        applyLogState(panel, LOG_SOURCE.MOCK, fallback);
+        return;
+      }
+      var list = pickAuditItems(data).map(mapAuditLog);
+      // 接口成功：空列表是真实结果，渲染空状态，不回退 mock
+      applyLogState(panel, LOG_SOURCE.REAL, list);
+    }).catch(function () {
+      if (seq !== logRequestSeq) return;
+      // 失败 / 超时 / API 不可用：回退演示数据并显示降级标注
+      applyLogState(panel, LOG_SOURCE.MOCK, fallback);
+    });
+  }
+
   function logsPanel() {
     return '<article class="card">' +
       '<div class="card-head"><div class="card-title">' + YL.icon('file-text') + '操作日志</div>' +
-        '<span class="card-sub">记录敏感操作，保留 180 天</span></div>' +
+        '<span class="card-sub">记录敏感操作</span></div>' +
       '<div class="table-wrap">' +
-        '<table class="tbl"><thead><tr><th>时间</th><th>操作人</th><th>操作内容</th><th>IP / 来源</th><th>级别</th></tr></thead><tbody>' +
-        D.LOGS.map(function (l) {
-          return '<tr>' +
-            '<td class="mono t-sm">' + U.fmtDate(l.time, 'MM-DD HH:mm:ss') + '</td>' +
-            '<td class="cell-strong">' + U.esc(l.user) + '</td>' +
-            '<td class="t-sm">' + U.esc(l.action) + '</td>' +
-            '<td class="mono t-xs t3">' + U.esc(l.ip) + '</td>' +
-            '<td>' + (l.level === 'warn' ? '<span class="tag tag-orange">敏感</span>' : '<span class="tag tag-gray">常规</span>') + '</td>' +
-          '</tr>';
-        }).join('') + '</tbody></table>' +
+        '<table class="tbl"><thead><tr><th>时间</th><th>操作人</th><th>操作内容</th><th>IP / 来源</th><th>级别</th></tr></thead>' +
+        '<tbody id="logRows"><tr><td colspan="5" class="t-sm t3">正在加载审计日志…</td></tr></tbody></table>' +
       '</div>' +
+      '<div class="card-body" id="logSourceNote" style="display:none">' +
+        '<span class="t-xs t3">当前为演示数据（审计服务未连接）</span></div>' +
     '</article>';
   }
 

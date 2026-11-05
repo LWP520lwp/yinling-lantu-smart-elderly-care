@@ -10,6 +10,11 @@
   var D = YL.data;
   var C = YL.charts;
 
+  /** 老人姓名展示文本：管理员会话显示原文，其余角色一律脱敏（utils.maskName） */
+  function maskElderName(name) {
+    return U.canSeeRaw() ? (name || '') : U.maskName(name);
+  }
+
   var selectedId = null;
   var timers = [];
   var analyzing = false;
@@ -102,7 +107,7 @@
       var content =
         '银龄岚途 · AI 健康分析报告\n' +
         '生成时间：' + U.fmtDate(new Date(), 'YYYY-MM-DD HH:mm') + '\n\n' +
-        '老人：' + elder.name + '（' + elder.gender + '，' + elder.age + ' 岁）\n' +
+        '老人：' + maskElderName(elder.name) + '（' + elder.gender + '，' + elder.age + ' 岁）\n' +
         '村居：' + elder.village + '\n' +
         '健康等级：' + D.DICT.health[elder.health].text + '\n' +
         '慢病病史：' + (elder.chronic.join('、') || '无') + '\n\n' +
@@ -110,7 +115,8 @@
         '跌倒风险评分：' + s.fall + ' / 100（' + riskLevel(s.fall).text + '）\n\n' +
         '【个性化建议】\n' + adviceFor(elder).map(function (a) { return '· ' + a; }).join('\n') + '\n\n' +
         '【说明】本报告由华为云盘古大模型生成，仅供参考，不作为诊疗依据。';
-      U.download('AI健康分析_' + elder.name + '_' + U.fmtDate(new Date(), 'YYYYMMDD') + '.txt', content, 'text/plain;charset=utf-8');
+      // 文件名只用老人编号，不暴露姓名（脱敏报告内容也不应通过文件名反推真名）
+      U.download('AI健康分析_' + elder.id + '_' + U.fmtDate(new Date(), 'YYYYMMDD') + '.txt', content, 'text/plain;charset=utf-8');
       UI.toast('分析报告已导出', 'success');
     });
   }
@@ -132,7 +138,7 @@
     box.innerHTML = list.map(function (e) {
       return '<button type="button" class="ai-elder' + (e.id === selectedId ? ' active' : '') + '" data-elder="' + e.id + '">' +
         UI.avatar(e, 'avatar-sm') +
-        '<div class="ai-elder-info"><b>' + U.esc(e.name) + '</b><em>' + e.age + ' 岁 · ' + U.esc(e.village) + '</em></div>' +
+        '<div class="ai-elder-info"><b>' + U.esc(maskElderName(e.name)) + '</b><em>' + e.age + ' 岁 · ' + U.esc(e.village) + '</em></div>' +
         '<span class="tag ' + D.DICT.health[e.health].cls + '">' + D.DICT.health[e.health].text + '</span>' +
       '</button>';
     }).join('');
@@ -175,7 +181,7 @@
     if (analyzing) return;
     if (animate) {
       main.innerHTML = '<div class="ai-loading">' +
-        '<div class="ai-loading-head"><span class="spinner dark"></span>盘古大模型正在分析 ' + U.esc(elder.name) + ' 的近 30 天体征数据…</div>' +
+        '<div class="ai-loading-head"><span class="spinner dark"></span>盘古大模型正在分析 ' + U.esc(maskElderName(elder.name)) + ' 的近 30 天体征数据…</div>' +
         '<div class="skeleton" style="height:96px;margin-bottom:12px"></div>' +
         '<div class="skeleton" style="height:150px;margin-bottom:12px"></div>' +
         '<div class="skeleton" style="height:110px"></div>' +
@@ -202,7 +208,7 @@
         '<div class="ai-profile-left">' +
           UI.avatar(elder, 'avatar-lg') +
           '<div>' +
-            '<div class="ai-profile-name"><h3>' + U.esc(elder.name) + '</h3>' +
+            '<div class="ai-profile-name"><h3>' + U.esc(maskElderName(elder.name)) + '</h3>' +
               '<span class="tag ' + D.DICT.health[elder.health].cls + '">' + D.DICT.health[elder.health].text + '</span>' +
               '<span class="tag tag-outline">' + D.DICT.member[elder.member].text + '</span></div>' +
             '<p>' + elder.gender + ' · ' + elder.age + ' 岁 · ' + U.esc(elder.village) + ' · 慢病：' + (elder.chronic.join('、') || '无') + '</p>' +
@@ -288,7 +294,7 @@
         '<div class="card-body">' +
           '<div class="chat-list" id="chatList">' +
             '<div class="chat-msg ai"><span class="chat-avatar">AI</span>' +
-              '<div class="chat-bubble">您好，我是银龄岚途 AI 健康助手。我已读取 ' + U.esc(elder.name) + ' 近 30 天的体征数据，可以为您分析健康问题并给出照护建议。</div>' +
+              '<div class="chat-bubble">您好，我是银龄岚途 AI 健康助手。我已读取 ' + U.esc(maskElderName(elder.name)) + ' 近 30 天的体征数据，可以为您分析健康问题并给出照护建议。</div>' +
             '</div>' +
           '</div>' +
           '<div class="chat-quick" id="chatQuick">' +
@@ -488,7 +494,8 @@
   }
 
   function answerFor(q, elder) {
-    var name = elder.name;
+    // 本地降级回答会直接渲染到聊天气泡，姓名同样按角色脱敏
+    var name = maskElderName(elder.name);
     if (/血压/.test(q)) {
       return '结合 ' + name + ' 近 30 天数据，收缩压均值约 ' + elder.lastVitals.sbp + ' mmHg，波动幅度较大。建议：① 每日固定时间测量并记录，测量前静坐 5 分钟；② 严格控盐，每日不超过 5g，少食咸鱼、腌菜；③ 降压药需按时服用，不可自行停药或加量；④ 若出现头晕、胸闷或血压持续高于 160/100 mmHg，请尽快到平潭协和医院心内科就诊。';
     }

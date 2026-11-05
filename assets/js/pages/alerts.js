@@ -18,6 +18,16 @@
     { key: 'false', label: '误报' }
   ];
 
+  /** 操作审计：api 未就绪或上报异常时静默跳过，不阻塞告警处置流程 */
+  function auditLog(action, payload) {
+    if (!YL.api || typeof YL.api.audit !== 'function') return;
+    try {
+      YL.api.audit(action, payload);
+    } catch (e) {
+      /* 审计失败不影响主流程 */
+    }
+  }
+
   function priority(a) {
     var score = 0;
     if (a.status === 'pending') score += 3;
@@ -201,8 +211,8 @@
             '<td><span class="t-sm">' + U.fmtDate(a.time, 'MM-DD HH:mm') + '</span>' +
               '<div class="t-xs t3">' + U.relTime(a.time) + '</div></td>' +
             '<td>' +
-              '<div class="person"><span class="avatar avatar-sm ' + (critical ? 'x-warm' : '') + '">' + U.esc(a.elderName.slice(0, 1)) + '</span>' +
-                '<div class="person-info"><span class="person-name">' + U.esc(a.elderName) + '</span>' +
+              '<div class="person"><span class="avatar avatar-sm ' + (critical ? 'x-warm' : '') + '">' + U.esc(U.maskName(a.elderName).slice(0, 1)) + '</span>' +
+                '<div class="person-info"><span class="person-name">' + U.esc(U.maskName(a.elderName)) + '</span>' +
                   '<span class="person-meta">' + a.elderAge + ' 岁 · ' + U.esc(a.village) + '</span></div></div>' +
             '</td>' +
             '<td><span class="alert-type-cell">' + YL.icon(type.icon) + type.text + '</span>' +
@@ -234,7 +244,10 @@
     table.querySelectorAll('[data-call]').forEach(function (b) {
       b.addEventListener('click', function () {
         var a = findAlert(b.getAttribute('data-call'));
-        if (a) UI.phoneModal(a.phone, a.familyName, a.relation);
+        if (!a) return;
+        // 完整号码仅管理员可见，其余角色保持掩码
+        if (!U.canSeeRaw()) { UI.toast('为保护隐私，已掩码显示联系电话', 'info'); return; }
+        UI.phoneModal(a.phone, a.familyName, a.relation);
       });
     });
 
@@ -271,9 +284,10 @@
 
     container.querySelector('#exportAlerts').addEventListener('click', function () {
       var list = filtered();
+      var raw = U.canSeeRaw();
       var headers = ['告警编号', '告警时间', '老人姓名', '年龄', '告警类型', '所属村居', '等级', '处理状态', '处理人', '处理方式', '处理结果'];
       var rows = list.map(function (a) {
-        return [a.id, U.fmtDate(a.time, 'YYYY-MM-DD HH:mm'), a.elderName, a.elderAge,
+        return [a.id, U.fmtDate(a.time, 'YYYY-MM-DD HH:mm'), raw ? a.elderName : U.maskName(a.elderName), a.elderAge,
           D.DICT.alertType[a.type].text, a.village, D.DICT.alertLevel[a.level].text,
           D.DICT.alertStatus[a.status].text, a.handler || '—', a.handleWay || '—', a.result || '—'];
       });
@@ -312,12 +326,12 @@
       '</div>' +
 
       '<div class="alert-person-card">' +
-        '<span class="avatar avatar-lg x-warm">' + U.esc(a.elderName.slice(0, 1)) + '</span>' +
+        '<span class="avatar avatar-lg x-warm">' + U.esc(U.maskName(a.elderName).slice(0, 1)) + '</span>' +
         '<div class="alert-person-main">' +
-          '<div class="alert-person-name"><b>' + U.esc(a.elderName) + '</b><span>' + a.elderAge + ' 岁</span>' +
+          '<div class="alert-person-name"><b>' + U.esc(U.maskName(a.elderName)) + '</b><span>' + a.elderAge + ' 岁</span>' +
             '<span class="tag tag-red">重点关注</span></div>' +
-          '<p>' + YL.icon('map-pin') + U.esc(a.address) + '</p>' +
-          '<p>' + YL.icon('users') + '紧急联系人：' + U.esc(a.familyName) + '（' + U.esc(a.relation) + '） · <span class="num">' + U.maskPhone(a.phone) + '</span></p>' +
+          '<p>' + YL.icon('map-pin') + U.esc(U.maskAddress(a.address)) + '</p>' +
+          '<p>' + YL.icon('users') + '紧急联系人：' + U.esc(U.canSeeRaw() ? a.familyName : U.maskName(a.familyName)) + '（' + U.esc(a.relation) + '） · <span class="num">' + U.maskPhone(a.phone) + '</span></p>' +
         '</div>' +
         '<div class="alert-person-actions">' +
           '<button type="button" class="btn btn-sm btn-soft" data-dial>' + YL.icon('phone') + '一键拨号</button>' +
@@ -384,6 +398,8 @@
       onMount: function (api, overlay) {
         YL.hydrateIcons(overlay);
         overlay.querySelector('[data-dial]').addEventListener('click', function () {
+          // 完整号码仅管理员可见，其余角色保持掩码
+          if (!U.canSeeRaw()) { UI.toast('为保护隐私，已掩码显示联系电话', 'info'); return; }
           UI.phoneModal(a.phone, a.familyName, a.relation);
         });
 
@@ -411,6 +427,7 @@
               result: '经电话核实老人状态正常，判定为设备误报，已记录并反馈设备厂商优化算法。'
             });
             UI.toast('已标记为误报，处置记录已归档', 'success');
+            auditLog('alert_false_alarm', { target_type: 'alert', target_id: a.id, result: 'ok' });
             api.close();
             renderListInPlace();
           });
@@ -432,6 +449,12 @@
             result: result
           });
           UI.toast('告警已处置，闭环记录已生成', 'success');
+          auditLog('alert_handle', {
+            target_type: 'alert',
+            target_id: a.id,
+            result: 'ok',
+            detail: { level: a.level }
+          });
           api.close();
           renderListInPlace();
         });

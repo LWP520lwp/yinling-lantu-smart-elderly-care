@@ -12,6 +12,26 @@
 
   var state = { range: 'month', page: 1, size: 6 };
 
+  /** 操作审计：后端不可用或 api 未就绪时静默跳过，不阻塞页面 */
+  function auditLog(action, payload) {
+    if (!YL.api || typeof YL.api.audit !== 'function') return;
+    try {
+      YL.api.audit(action, payload);
+    } catch (e) {
+      /* 审计失败不影响页面主流程 */
+    }
+  }
+
+  /** 报表导出审计：type 区分导出类型（coverage 统计报表 / gov 民政上报报表） */
+  function auditReportExport(type, count) {
+    auditLog('report_export', {
+      target_type: 'report',
+      target_id: type,
+      result: 'ok',
+      detail: { count: count }
+    });
+  }
+
   var RANGE_FACTOR = { day: .028, week: .17, month: 1, quarter: 2.92 };
   var RANGE_LABEL = { day: '今日', week: '本周', month: '本月', quarter: '本季度' };
   var RANGE_PERIOD = {
@@ -49,6 +69,8 @@
             '<p>面向民政部门与机构管理者的区域养老数据看板，支持按周期汇总与制式报表上报。</p></div>' +
           '<div class="page-actions">' +
             '<button type="button" class="btn btn-outline" id="exportReport">' + YL.icon('download') + '导出 Excel</button>' +
+            /* 完整档案为明文个人信息，仅管理员可见 */
+            (U.canSeeRaw() ? '<button type="button" class="btn btn-outline" id="exportArchive">' + YL.icon('download') + '导出完整档案</button>' : '') +
             '<button type="button" class="btn btn-primary" id="govReport">' + YL.icon('file-text') + '生成民政上报报表</button>' +
           '</div>' +
         '</div>' +
@@ -246,11 +268,44 @@
         return [v.name, v.town, v.registered, v.total, v.rate.toFixed(1), Math.round(v.total * 1.6), v.rate >= 90 ? '达标' : v.rate >= 75 ? '基本达标' : '待提升'];
       });
       U.download('银龄岚途_养老服务统计报表_' + U.fmtDate(new Date(), 'YYYYMMDD') + '.csv', U.toCSV(headers, rows));
+      auditReportExport('coverage', rows.length);
       UI.toast('报表已导出，可用 Excel 打开', 'success');
     });
 
+    /* 非管理员不渲染该按钮，需判空 */
+    var archiveBtn = container.querySelector('#exportArchive');
+    if (archiveBtn) archiveBtn.addEventListener('click', openArchiveConfirm);
+
     container.querySelector('#govReport').addEventListener('click', openGovReport);
     container.querySelector('#deviceDetail').addEventListener('click', function () { YL.router.go('/devices'); });
+  }
+
+  /* ------------------------------------------------------------------
+     完整档案导出（明文个人信息，需二次确认）
+     ------------------------------------------------------------------ */
+  function openArchiveConfirm() {
+    UI.modal({
+      size: 'sm',
+      title: '导出完整档案',
+      body:
+        '<p class="t-sm t3">该文件包含老人真实姓名、联系电话、住址等个人信息，仅限授权场景使用。' +
+        '请确认已获得相应授权，导出后妥善保管，不得随意外传。</p>',
+      footer:
+        '<button type="button" class="btn btn-outline" data-close>取消</button>' +
+        '<button type="button" class="btn btn-primary" data-confirm>确认导出（明文）</button>',
+      onMount: function (api, overlay) {
+        overlay.querySelector('[data-confirm]').addEventListener('click', function () {
+          api.close();
+          var elders = YL.pages && YL.pages.elders;
+          if (!elders || typeof elders.exportArchive !== 'function') {
+            UI.toast('档案导出模块未加载', 'error');
+            return;
+          }
+          elders.exportArchive();
+          UI.toast('完整档案已导出，请注意文件保管', 'success');
+        });
+      }
+    });
   }
 
   /* ------------------------------------------------------------------
@@ -307,8 +362,11 @@
           var data = rows.map(function (r) {
             return [r.town, r.villages, r.registered, r.total, r.rate.toFixed(1), r.orders, r.rate >= 90 ? '达标' : '待提升'];
           });
+          // 先记录真实数据行数再追加合计行，避免审计条数被合计行虚增
+          var rowCount = data.length;
           data.push(['合计', 42, totalRegistered, totalServed, '84.3', totalOrders, '—']);
           U.download('平潭综合实验区养老服务统计报表_' + U.fmtDate(new Date(), 'YYYYMMDD') + '.csv', U.toCSV(headers, data));
+          auditReportExport('gov', rowCount);
           UI.toast('民政上报报表已导出', 'success');
         });
         overlay.querySelector('[data-gov-print]').addEventListener('click', function () {

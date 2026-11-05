@@ -9,6 +9,11 @@
   var S = YL.store;
   var D = YL.data;
 
+  /** 老人姓名展示文本：管理员会话显示原文，其余角色一律脱敏（utils.maskName） */
+  function maskElderName(name) {
+    return U.canSeeRaw() ? (name || '') : U.maskName(name);
+  }
+
   var state = { page: 1, size: 10, q: '', status: '' };
   var logTimer = null;
 
@@ -141,7 +146,7 @@
             '<td><div class="mono t-sm cell-strong">' + U.esc(d.id) + '</div>' +
               '<div class="t-xs t3 mono">' + U.esc(d.iotId.slice(0, 16)) + '…</div></td>' +
             '<td>' + (d.elderId ?
-              '<a class="link-name" href="#/elders/' + d.elderId + '">' + U.esc(d.elderName) + '</a>' :
+              '<a class="link-name" href="#/elders/' + d.elderId + '">' + U.esc(maskElderName(d.elderName)) + '</a>' :
               '<span class="t3 t-sm">未绑定</span>') + '</td>' +
             '<td><span class="t-sm">' + U.esc(d.type) + '</span><div class="t-xs t3">' + U.esc(d.firmware) + '</div></td>' +
             '<td><span class="t-sm">' + U.esc(d.village) + '</span><div class="t-xs t3">' + U.esc(d.town) + '</div></td>' +
@@ -174,7 +179,7 @@
         if (!device || !device.elderId) { UI.toast('该设备当前未绑定老人', 'info'); return; }
         UI.confirm({
           title: '解绑该设备？',
-          message: '解绑后设备 ' + id + ' 将停止上报「' + device.elderName + '」的健康数据，历史数据仍会保留。',
+          message: '解绑后设备 ' + id + ' 将停止上报「' + maskElderName(device.elderName) + '」的健康数据，历史数据仍会保留。',
           okText: '确认解绑', danger: true
         }).then(function (ok) {
           if (!ok) return;
@@ -242,7 +247,7 @@
             '<div class="input-wrap select-wrap"><select name="elderId">' +
               '<option value="">暂不绑定（入库备用）</option>' +
               unbound.map(function (e) {
-                return '<option value="' + e.id + '">' + U.esc(e.name) + ' · ' + U.esc(e.village) + ' · ' + e.id + '</option>';
+                return '<option value="' + e.id + '">' + U.esc(maskElderName(e.name)) + ' · ' + U.esc(e.village) + ' · ' + e.id + '</option>';
               }).join('') +
             '</select><span class="select-caret" data-icon="chevron"></span></div></div>' +
           '<div class="info-note span-2">' + YL.icon('shield') +
@@ -365,7 +370,7 @@
                 '<dl class="kv-list">' +
                   '<div><span class="k">设备型号</span><span class="v">' + U.esc(device.type) + '</span></div>' +
                   '<div><span class="k">绑定老人</span><span class="v">' + (elder ?
-                    '<a class="link-name" href="#/elders/' + elder.id + '">' + U.esc(elder.name) + '</a>（' + U.esc(elder.village) + '）' : '<span class="t3">未绑定</span>') + '</span></div>' +
+                    '<a class="link-name" href="#/elders/' + elder.id + '">' + U.esc(maskElderName(elder.name)) + '</a>（' + U.esc(elder.village) + '）' : '<span class="t3">未绑定</span>') + '</span></div>' +
                   '<div><span class="k">IMEI</span><span class="v mono">' + U.esc(device.imei) + '</span></div>' +
                   '<div><span class="k">MAC 地址</span><span class="v mono">' + U.esc(device.mac) + '</span></div>' +
                   '<div><span class="k">固件版本</span><span class="v">' + U.esc(device.firmware) + '</span></div>' +

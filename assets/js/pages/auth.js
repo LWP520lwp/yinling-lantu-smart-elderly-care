@@ -6,13 +6,19 @@
   var YL = global.YL;
   var U = YL.utils;
   var UI = YL.ui;
-  var D = YL.data;
 
   var captchaCode = '';
   var onSuccess = null;
 
   var CHARS = 'ABCDEFGHJKLMNPQRSTUVWXY23456789';
   var COLORS = ['#165DFF', '#0B3FCC', '#4E5969', '#C25E00', '#009A23'];
+
+  /**
+   * 大赛演示口令：仅用于页面下方演示 chip 的快速填充与离线演示。
+   * 真实校验全部交给后端 YL.api.login，前端不再比对任何口令。
+   * 正式环境应删除演示入口（含本常量）。
+   */
+  var DEMO_PASSWORD = '123456';
 
   function rand(n) { return Math.floor(Math.random() * n); }
 
@@ -85,6 +91,30 @@
       : '<span class="btn-label">登录</span>';
   }
 
+  /**
+   * 网络不可用 / 认证模块缺失时的降级入口：
+   * 写入只读离线演示会话（不携带 token），保证无后端双击打开仍可预览全部页面。
+   */
+  function enterOfflineDemo(account, role) {
+    var roles = YL.store.ROLES || {};
+    var conf = roles[role] || {};
+    YL.store.login({
+      token: '',
+      offline: true,
+      user: {
+        id: '',
+        name: conf.name || account,
+        account: account,
+        role: role,
+        scope: role === 'admin' ? '全域' : ''
+      }
+    });
+    setLoading(false);
+    renderCaptcha();
+    UI.toast('无法连接认证服务，已进入离线演示模式', 'warn', 2600);
+    if (onSuccess) onSuccess();
+  }
+
   function submit(e) {
     if (e) e.preventDefault();
     clearAllErrors();
@@ -108,33 +138,58 @@
       return;
     }
 
-    var matched = D.ACCOUNTS.filter(function (a) { return a.account === account; })[0];
-    if (!matched) {
-      showAuthError('账号不存在，请使用页面下方的演示账号登录');
-      return;
+    setLoading(true);
+
+    // 认证统一走后端：账号 / 密码 / 角色 / 状态均由服务端判定，前端不再比对演示口令
+    var api = YL.api;
+    var request = null;
+    if (api && typeof api.login === 'function') {
+      try {
+        request = api.login(account, password, role);
+      } catch (err) {
+        request = null;                                 // 同步异常按网络失败降级
+      }
     }
-    if (matched.status === 'disabled') {
-      showAuthError('该账号已被停用，请联系系统管理员');
-      return;
-    }
-    if (password !== '123456') {
-      setError('Password', '密码不正确（演示密码：123456）');
-      return;
-    }
-    if (matched.role !== role) {
-      var expect = YL.store.ROLES[matched.role].label;
-      showAuthError('账号 ' + account + ' 的角色为「' + expect + '」，请切换角色后登录');
-      document.getElementById('loginRole').value = matched.role;
+
+    // YL.api 缺失（认证模块未加载）：直接进入离线演示，不抛错、不白屏
+    if (!request || typeof request.then !== 'function') {
+      enterOfflineDemo(account, role);
       return;
     }
 
-    setLoading(true);
-    setTimeout(function () {
-      YL.store.login(account, role);
+    // 两个回调分开传递：登录成功后的视图切换若抛错，不能被误判为登录失败而转入离线演示
+    request.then(function () {
+      // 成功时 YL.api.login 内部已写入 YL.store 会话，这里只处理记住账号与视图切换
+      // 登录审计由后端 /api/auth/login 内部统一写入，前端不重复上报
       U.store.set('yl_login_hint', remember ? { account: account, role: role } : null);
       setLoading(false);
       if (onSuccess) onSuccess();
-    }, 520);
+    }, function (err) {
+      setLoading(false);
+      var code = err && err.code;
+      if (code === 'INVALID_CREDENTIALS') {
+        setError('Password', '账号或密码不正确');
+        renderCaptcha();
+        return;
+      }
+      if (code === 'ROLE_MISMATCH') {
+        showAuthError('角色与账号不匹配，请切换角色后登录');
+        renderCaptcha();
+        return;
+      }
+      if (code === 'ACCOUNT_DISABLED') {
+        showAuthError('该账号已被停用，请联系管理员');
+        renderCaptcha();
+        return;
+      }
+      if (code === 'TOO_MANY_ATTEMPTS') {
+        showAuthError('尝试过于频繁，请稍后再试');
+        renderCaptcha();
+        return;
+      }
+      // 网络失败 / 服务端异常：允许进入只读离线演示会话
+      enterOfflineDemo(account, role);
+    });
   }
 
   function init(successCb) {
@@ -158,7 +213,7 @@
     U.qsa('.demo-chip').forEach(function (chip) {
       chip.addEventListener('click', function () {
         document.getElementById('loginAccount').value = chip.getAttribute('data-account');
-        document.getElementById('loginPassword').value = '123456';
+        document.getElementById('loginPassword').value = DEMO_PASSWORD;
         document.getElementById('loginRole').value = chip.getAttribute('data-role');
         clearAllErrors();
         var cap = document.getElementById('loginCaptcha');

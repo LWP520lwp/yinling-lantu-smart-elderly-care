@@ -18,6 +18,19 @@
     selected: {}
   };
 
+  // 记录最近一次已上报浏览审计的档案，详情重渲染时避免重复上报
+  var lastAuditElderId = '';
+
+  /** 操作审计：后端不可用或 api 未就绪时静默跳过，不阻塞页面 */
+  function auditLog(action, payload) {
+    if (!YL.api || typeof YL.api.audit !== 'function') return;
+    try {
+      YL.api.audit(action, payload);
+    } catch (e) {
+      /* 审计失败不影响页面主流程 */
+    }
+  }
+
   /* ------------------------------------------------------------------
      列表页
      ------------------------------------------------------------------ */
@@ -33,8 +46,20 @@
     if (query.member) state.filters.member = query.member;
   }
 
+  /** 家属角色绑定的老人（无绑定返回 null）；store 已按家庭范围过滤，取首条即为绑定老人 */
+  function boundElder() {
+    var list = S.elders();
+    return list.length ? list[0] : null;
+  }
+
   function scopedElders() {
-    return S.elders();
+    var list = S.elders();
+    // 家属仅可见绑定老人，兜底裁剪为 1 条
+    if (S.role() === 'family') {
+      var bound = list.length ? list[0] : null;
+      return bound ? [bound] : [];
+    }
+    return list;
   }
 
   function filtered() {
@@ -107,6 +132,8 @@
   }
 
   function renderList(container, route) {
+    // 回到列表即视为离开详情路由，重置浏览审计去重标志，再次进入同一档案需重新上报
+    lastAuditElderId = '';
     var list = scopedElders();
     var villages = D.VILLAGES.filter(function (v) {
       return S.role() === 'admin' || v.town === '流水镇';
@@ -121,6 +148,8 @@
           '</div>' +
           '<div class="page-actions">' +
             '<button type="button" class="btn btn-outline" id="exportElders">' + YL.icon('download') + '导出档案</button>' +
+            /* 完整档案为明文个人信息，仅管理员可见 */
+            (U.canSeeRaw() ? '<button type="button" class="btn btn-outline" id="exportArchive">' + YL.icon('download') + '导出完整档案</button>' : '') +
             '<button type="button" class="btn btn-primary" id="addElder">' + YL.icon('plus') + '新增老人档案</button>' +
           '</div>' +
         '</div>' +
@@ -223,7 +252,7 @@
               '<td>' +
                 '<div class="person">' + UI.avatar(e) +
                   '<div class="person-info">' +
-                    '<a class="person-name link-name" href="#/elders/' + e.id + '">' + U.esc(e.name) + '</a>' +
+                    '<a class="person-name link-name" href="#/elders/' + e.id + '">' + U.esc(U.maskName(e.name)) + '</a>' +
                     '<div class="person-meta">' + e.gender + ' · ' + e.age + ' 岁 · ' + U.maskIdCard(e.idCard) + '</div>' +
                   '</div>' +
                 '</div>' +
@@ -282,7 +311,7 @@
         if (!elder || !elder.deviceId) return;
         UI.confirm({
           title: '解除设备绑定？',
-          message: '将解绑「' + elder.name + '」与设备 ' + elder.deviceId + ' 的关联，解绑后该设备停止上报该老人的健康数据。',
+          message: '将解绑「' + U.maskName(elder.name) + '」与设备 ' + elder.deviceId + ' 的关联，解绑后该设备停止上报该老人的健康数据。',
           okText: '确认解绑', danger: true
         }).then(function (ok) {
           if (!ok) return;
@@ -399,6 +428,16 @@
       exportElders(filtered());
     });
 
+    // 明文导出需二次确认，仅在管理员入口下存在
+    var archiveBtn = container.querySelector('#exportArchive');
+    if (archiveBtn) {
+      archiveBtn.addEventListener('click', function () {
+        confirmArchiveExport(function () {
+          exportElders(filtered(), true);
+        });
+      });
+    }
+
     container.querySelector('#batchExport').addEventListener('click', function () {
       var ids = Object.keys(state.selected).filter(function (k) { return state.selected[k]; });
       exportElders(scopedElders().filter(function (e) { return ids.indexOf(e.id) !== -1; }));
@@ -430,16 +469,47 @@
     });
   }
 
-  function exportElders(list) {
+  /** 明文档案导出二次确认：仅「确认导出」后执行 onOk */
+  function confirmArchiveExport(onOk) {
+    UI.modal({
+      size: 'sm',
+      title: '导出完整档案',
+      body: '<p class="t-sm" style="line-height:1.7">本次将导出含真实姓名与联系电话的完整档案，请确认使用场景符合数据安全管理要求。</p>',
+      footer:
+        '<button type="button" class="btn btn-outline" data-close>取消</button>' +
+        '<button type="button" class="btn btn-primary" data-confirm-export>确认导出（明文）</button>',
+      onMount: function (api, overlay) {
+        overlay.querySelector('[data-confirm-export]').addEventListener('click', function () {
+          api.close();
+          onOk();
+        });
+      }
+    });
+  }
+
+  /** 导出老人档案 CSV：raw 为 true 时输出明文，默认脱敏 */
+  function exportElders(list, raw) {
+    var plain = raw === true;
     var headers = ['档案编号', '姓名', '性别', '年龄', '身份证号', '所属村居', '乡镇', '健康等级', '会员类型', '绑定设备', '最近心率', '最近血氧', '家属姓名', '家属电话'];
     var rows = list.map(function (e) {
-      return [e.id, e.name, e.gender, e.age, U.maskIdCard(e.idCard), e.village, e.town,
+      return [e.id, plain ? e.name : U.maskName(e.name), e.gender, e.age, U.maskIdCard(e.idCard), e.village, e.town,
         D.DICT.health[e.health].text, D.DICT.member[e.member].text,
         e.deviceBound === false ? '未绑定' : e.deviceId,
-        e.lastVitals.hr, e.lastVitals.spo2, e.familyName, e.phone];
+        e.lastVitals.hr, e.lastVitals.spo2,
+        plain ? e.familyName : U.maskName(e.familyName),
+        plain ? e.phone : U.maskPhone(e.phone)];
     });
     U.download('银龄岚途_老人档案_' + U.fmtDate(new Date(), 'YYYYMMDD') + '.csv',
       U.toCSV(headers, rows));
+
+    // 导出审计只记录条数与首个档案编号，不含档案内容；detail 序列化后受 512 字符上限约束
+    var ids = list.map(function (e) { return e.id; });
+    auditLog('elder_export', {
+      target_type: 'elder',
+      target_id: ids.length === 1 ? ids[0] : 'batch',
+      result: 'ok',
+      detail: { count: rows.length, first_id: ids[0] || '' }
+    });
   }
 
   function findElder(id) {
@@ -452,6 +522,14 @@
   function openElderForm(id, onDone) {
     var elder = id ? findElder(id) : null;
     var isEdit = !!elder;
+    // 非管理员编辑时，表单仅回填脱敏值；新增档案保持空值
+    var canRaw = U.canSeeRaw();
+    var formName = elder ? (canRaw ? elder.name : U.maskName(elder.name)) : '';
+    var formAddress = elder ? (canRaw ? elder.address : U.maskAddress(elder.address)) : '';
+    var formFamily = elder ? (canRaw ? elder.familyName : U.maskName(elder.familyName)) : '';
+    var formPhone = elder ? (canRaw ? elder.phone : U.maskPhone(elder.phone)) : '';
+    // 仅编辑态且无明文权限时提示「脱敏值需重新输入」
+    var maskTip = (isEdit && !canRaw) ? '<span class="t-xs t3">（当前为脱敏值，修改请重新输入完整内容）</span>' : '';
     var villages = D.VILLAGES.filter(function (v) {
       return S.role() === 'admin' || v.town === '流水镇';
     });
@@ -461,8 +539,8 @@
       desc: isEdit ? '档案变更将同步至村居社工与绑定设备。' : '建档后可为老人绑定「银龄守护」手环并纳入健康监测。',
       body:
         '<form id="elderForm" class="form-grid" autocomplete="off">' +
-          '<div class="field"><label>姓名 <span class="req">*</span></label>' +
-            '<div class="input-wrap"><input name="name" placeholder="请输入老人姓名" value="' + U.esc(elder ? elder.name : '') + '"></div></div>' +
+          '<div class="field"><label>姓名 <span class="req">*</span>' + maskTip + '</label>' +
+            '<div class="input-wrap"><input name="name" placeholder="请输入老人姓名" value="' + U.esc(formName) + '"></div></div>' +
           '<div class="field"><label>性别 <span class="req">*</span></label>' +
             '<div class="input-wrap select-wrap"><select name="gender">' +
               '<option value="女"' + (elder && elder.gender === '女' ? ' selected' : '') + '>女</option>' +
@@ -490,11 +568,11 @@
               '<option value="free"' + (elder && elder.member === 'free' ? ' selected' : '') + '>兜底免费</option>' +
             '</select><span class="select-caret" data-icon="chevron"></span></div></div>' +
           '<div class="field span-2"><label>居住地址 <span class="req">*</span></label>' +
-            '<div class="input-wrap"><input name="address" placeholder="村居门牌号" value="' + U.esc(elder ? elder.address : '') + '"></div></div>' +
+            '<div class="input-wrap"><input name="address" placeholder="村居门牌号" value="' + U.esc(formAddress) + '"></div></div>' +
           '<div class="field"><label>家属姓名 <span class="req">*</span></label>' +
-            '<div class="input-wrap"><input name="familyName" placeholder="紧急联系人" value="' + U.esc(elder ? elder.familyName : '') + '"></div></div>' +
-          '<div class="field"><label>家属电话 <span class="req">*</span></label>' +
-            '<div class="input-wrap"><input name="phone" inputmode="numeric" maxlength="11" placeholder="11 位手机号" value="' + U.esc(elder ? elder.phone : '') + '"></div></div>' +
+            '<div class="input-wrap"><input name="familyName" placeholder="紧急联系人" value="' + U.esc(formFamily) + '"></div></div>' +
+          '<div class="field"><label>家属电话 <span class="req">*</span>' + maskTip + '</label>' +
+            '<div class="input-wrap"><input name="phone" inputmode="numeric" maxlength="11" placeholder="11 位手机号" value="' + U.esc(formPhone) + '"></div></div>' +
           '<div class="field"><label>与老人关系</label>' +
             '<div class="input-wrap select-wrap"><select name="relation">' +
               ['女儿', '儿子', '儿媳', '孙子', '侄女', '其他'].map(function (r) {
@@ -515,13 +593,24 @@
         overlay.querySelector('[data-save]').addEventListener('click', function () {
           var form = overlay.querySelector('#elderForm');
           var data = UI.formData(form);
+          // 非管理员未修改的脱敏字段，提交时还原为原始真实值，避免把 * 写回数据
+          var phoneUntouched = false;
+          if (isEdit && !canRaw && elder) {
+            if (data.name === U.maskName(elder.name)) data.name = elder.name;
+            if (data.familyName === U.maskName(elder.familyName)) data.familyName = elder.familyName;
+            if (data.address === U.maskAddress(elder.address)) data.address = elder.address;
+            if (data.phone === U.maskPhone(elder.phone)) {
+              data.phone = elder.phone;
+              phoneUntouched = true;
+            }
+          }
           UI.clearErrors(form);
           var ok = true;
           if (!data.name) { UI.fieldError(form, 'name', '请输入老人姓名'); ok = false; }
           if (!data.age || Number(data.age) < 50 || Number(data.age) > 110) {
             UI.fieldError(form, 'age', '年龄需在 50 - 110 之间'); ok = false;
           }
-          if (!/^1[3-9]\d{9}$/.test(data.phone)) {
+          if (!phoneUntouched && !/^1[3-9]\d{9}$/.test(data.phone)) {
             UI.fieldError(form, 'phone', '请输入正确的 11 位手机号'); ok = false;
           }
           if (!ok) return;
@@ -563,12 +652,36 @@
      档案详情
      ------------------------------------------------------------------ */
   function renderDetail(container, route) {
+    // 家属仅可查看绑定老人的档案
+    if (S.role() === 'family') {
+      var bound = boundElder();
+      if (!bound || bound.id !== route.params.id) {
+        container.innerHTML = '<div class="page">' + UI.empty('shield', '无权查看该老人档案',
+          '当前账号仅可查看已绑定家属的老人档案。',
+          '<a class="btn btn-primary" href="#/elders">返回档案列表</a>') + '</div>';
+        return;
+      }
+    }
+
     var elder = findElder(route.params.id);
     if (!elder) {
       container.innerHTML = '<div class="page">' + UI.empty('users', '未找到该老人档案', '档案可能已被归档，请返回列表重新选择。',
         '<a class="btn btn-primary" href="#/elders">返回档案列表</a>') + '</div>';
       return;
     }
+
+    // 同一档案的后续重渲染（如保存后刷新）不重复上报
+    if (lastAuditElderId !== elder.id) {
+      lastAuditElderId = elder.id;
+      auditLog('elder_view', { target_type: 'elder', target_id: elder.id, result: 'ok' });
+    }
+
+    // 仅管理员可查看明文姓名 / 电话 / 地址，其余角色统一脱敏展示
+    var canRaw = U.canSeeRaw();
+    var showName = canRaw ? elder.name : U.maskName(elder.name);
+    var showPhone = canRaw ? elder.phone : U.maskPhone(elder.phone);
+    var showFamily = canRaw ? elder.familyName : U.maskName(elder.familyName);
+    var showAddress = canRaw ? elder.address : U.maskAddress(elder.address);
 
     var member = D.DICT.member[elder.member];
     var v = elder.lastVitals;
@@ -592,16 +705,16 @@
 
         '<section class="profile-head card">' +
           '<div class="profile-main">' +
-            '<span class="avatar avatar-lg ' + elder.avatarClass + '">' + U.esc(elder.name.slice(0, 1)) + '</span>' +
+            '<span class="avatar avatar-lg ' + elder.avatarClass + '">' + U.esc(showName.slice(0, 1)) + '</span>' +
             '<div class="profile-info">' +
               '<div class="profile-name">' +
-                '<h2>' + U.esc(elder.name) + '</h2>' +
+                '<h2>' + U.esc(showName) + '</h2>' +
                 UI.healthTag(elder.health) +
                 UI.memberTag(elder.member) +
                 (elder.risk === 'high' ? '<span class="tag tag-red">重点关注</span>' : '') +
               '</div>' +
               '<p class="profile-meta">' + elder.gender + ' · ' + elder.age + ' 岁 · ' + U.esc(elder.village) + '（' + U.esc(elder.town) + '） · 档案编号 ' + elder.id + '</p>' +
-              '<p class="profile-addr">' + YL.icon('map-pin') + U.esc(elder.address) + '</p>' +
+              '<p class="profile-addr">' + YL.icon('map-pin') + U.esc(showAddress) + '</p>' +
             '</div>' +
           '</div>' +
           '<div class="profile-vitals">' +
@@ -621,8 +734,8 @@
                 '<dl class="kv-list">' +
                   '<div><span class="k">身份证号</span><span class="v mono">' + U.maskIdCard(elder.idCard) + '</span></div>' +
                   '<div><span class="k">出生日期</span><span class="v">' + elder.birth + '</span></div>' +
-                  '<div><span class="k">紧急联系人</span><span class="v">' + U.esc(elder.familyName) + '（' + U.esc(elder.relation) + '）</span></div>' +
-                  '<div><span class="k">联系电话</span><span class="v num">' + U.maskPhone(elder.phone) + '</span></div>' +
+                  '<div><span class="k">紧急联系人</span><span class="v">' + U.esc(showFamily) + '（' + U.esc(elder.relation) + '）</span></div>' +
+                  '<div><span class="k">联系电话</span><span class="v num">' + U.esc(showPhone) + '</span></div>' +
                   '<div><span class="k">慢病病史</span><span class="v">' + (elder.chronic.length ?
                     elder.chronic.map(function (c) { return '<span class="tag tag-outline" style="margin:0 4px 4px 0">' + U.esc(c) + '</span>'; }).join('') :
                     '<span class="t3">暂无登记</span>') + '</span></div>' +
@@ -714,6 +827,11 @@
     C.mount(container.querySelector('#chElderSpo2'), C.areaOption(series.labels, series.spo2, { color: '#00B42A', min: 88 }));
 
     container.querySelector('[data-call-elder]').addEventListener('click', function () {
+      // 电话弹窗展示明文号码，仅管理员可调用
+      if (!canRaw) {
+        UI.toast('无权限查看完整号码', 'warn');
+        return;
+      }
       UI.phoneModal(elder.phone, elder.familyName, elder.relation);
     });
     container.querySelector('[data-edit-elder]').addEventListener('click', function () {
@@ -743,5 +861,13 @@
   }
 
   YL.pages = YL.pages || {};
-  YL.pages.elders = { render: render };
+  YL.pages.elders = {
+    render: render,
+    /** 导出全量老人完整档案（明文）；二次确认由调用方负责 */
+    exportArchive: function () {
+      // 除 UI 层二次确认外，函数内再做一次权限校验，防止脚本直接调用导出明文
+      if (!U.canSeeRaw()) { UI.toast('无权限导出完整档案', 'error'); return; }
+      exportElders(S.state.elders, true);
+    }
+  };
 })(window);

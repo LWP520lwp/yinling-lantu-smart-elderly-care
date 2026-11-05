@@ -31,7 +31,23 @@ load_dotenv(dotenv_path=ENV_PATH, override=False)
 DEFAULT_MODEL: str = "deepseek-v4-flash"
 DEFAULT_BASE_URL: str = "https://api.modelarts-maas.com/v2/chat/completions"
 DEFAULT_PORT: int = 8000
-DEFAULT_CORS_ORIGINS: Tuple[str, ...] = ("*",)
+# CORS 显式白名单：默认只放行本机静态服务器常用的 8080 / 5500 端口。
+# 最后一项 "null" 是浏览器从 file:// 页面发起请求时携带的 Origin 字面量，
+# 必须保留，否则双击 index.html 的演示请求会全部被浏览器 CORS 拦截；
+# 换端口启动静态服务器时请自行追加对应来源，生产环境禁止填 "*"。
+DEFAULT_CORS_ORIGINS: Tuple[str, ...] = (
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    "null",
+)
+
+# --- 认证相关默认值 ---
+# token 有效期缺省 8 小时；合法区间 5 分钟 - 7 天
+DEFAULT_AUTH_TTL_SECONDS: int = 28800
+MIN_AUTH_TTL_SECONDS: int = 300
+MAX_AUTH_TTL_SECONDS: int = 604800
 
 # --- IoT 相关默认值（与 .env.example 中的注释保持一致） ---
 DEFAULT_MQTT_PORT: int = 8883
@@ -65,6 +81,24 @@ def _get_int(name: str, default: int) -> int:
     return value
 
 
+def _get_bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    """读取带区间的整型环境变量。
+
+    空值 / 非整数 / 越界一律回退 ``default``（缺省值本身必须落在区间内），
+    避免一个手误的 ``AUTH_TTL_SECONDS`` 让 token 立刻过期或永不过期。
+    """
+    raw = _get_str(name, "")
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if not minimum <= value <= maximum:
+        return default
+    return value
+
+
 def _get_csv(name: str, default: Tuple[str, ...]) -> Tuple[str, ...]:
     """读取逗号分隔的列表配置，例如 ``CORS_ORIGINS=http://a,http://b``。"""
     raw = _get_str(name, "")
@@ -94,6 +128,12 @@ class Settings:
     maas_base_url: str
     app_port: int
     cors_origins: Tuple[str, ...]
+
+    # --- 认证：HMAC-SHA256 无状态 token ---
+    # AUTH_SECRET 留空时由 app.auth 在进程内随机生成（重启后旧 token 失效）
+    auth_secret: str = ""
+    # 合法区间 300 - 604800 秒，越界 / 非法回退 28800
+    auth_ttl_seconds: int = DEFAULT_AUTH_TTL_SECONDS
 
     # --- IoTDA 设备侧 MQTT（8883，TLS）---
     iotda_mqtt_host: str = ""
@@ -184,6 +224,14 @@ def get_settings() -> Settings:
         maas_base_url=_get_str("MAAS_BASE_URL", DEFAULT_BASE_URL),
         app_port=_get_int("APP_PORT", DEFAULT_PORT),
         cors_origins=_get_csv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS),
+        # 认证（token 有效期非法 / 越界回退 28800）
+        auth_secret=_get_str("AUTH_SECRET", ""),
+        auth_ttl_seconds=_get_bounded_int(
+            "AUTH_TTL_SECONDS",
+            DEFAULT_AUTH_TTL_SECONDS,
+            MIN_AUTH_TTL_SECONDS,
+            MAX_AUTH_TTL_SECONDS,
+        ),
         # IoTDA 设备侧 MQTT
         iotda_mqtt_host=_get_str("IOTDA_MQTT_HOST", ""),
         iotda_mqtt_port=_get_int("IOTDA_MQTT_PORT", DEFAULT_MQTT_PORT),

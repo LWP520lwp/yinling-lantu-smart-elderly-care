@@ -10,6 +10,11 @@
   var D = YL.data;
   var C = YL.charts;
 
+  /** 老人姓名展示文本：管理员会话显示原文，其余角色一律脱敏（utils.maskName） */
+  function maskElderName(name) {
+    return U.canSeeRaw() ? (name || '') : U.maskName(name);
+  }
+
   var timers = [];
   var mapTip = null;
   var liveItems = [];
@@ -40,7 +45,7 @@
     return '<li class="alert-row' + (critical ? ' is-critical' : '') + '">' +
       '<span class="alert-type ' + (critical ? 'critical' : '') + '">' + YL.icon(critical ? 'alert' : type.icon) + '</span>' +
       '<div class="alert-main">' +
-        '<b>' + U.esc(a.elderName) + ' · ' + type.text + '</b>' +
+        '<b>' + U.esc(maskElderName(a.elderName)) + ' · ' + type.text + '</b>' +
         '<em>' + U.esc(a.village) + ' · ' + U.esc(a.metric) + '</em>' +
       '</div>' +
       '<div class="alert-side">' +
