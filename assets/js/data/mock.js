@@ -492,13 +492,39 @@
     var hrBase = 68 + (elder.age - 70) * .35;
     var sbpBase = 122 + (elder.health === 'disabled' ? 16 : elder.health === 'semi' ? 9 : 2);
     var spo2Base = 97.4 - (elder.health === 'disabled' ? 2.4 : elder.health === 'semi' ? 1.1 : .2);
+    // 异常强度：高风险注入明显发作，中风险注入轻度异常，低风险保持平稳
+    var high = elder.risk === 'high';
+    var amp = high ? 1 : elder.risk === 'mid' ? .5 : 0;
     for (var i = days - 1; i >= 0; i--) {
       var d = U.daysAgo(i);
       out.labels.push(U.fmtDate(d, 'MM-DD'));
-      out.hr.push(Math.round(hrBase + (r() - .5) * 12 + (i < 3 ? 2 : 0)));
-      out.sbp.push(Math.round(sbpBase + (r() - .5) * 16));
-      out.dbp.push(Math.round(sbpBase * .62 + (r() - .5) * 8));
-      out.spo2.push(U.round(spo2Base + (r() - .5) * 1.8, 1));
+
+      // 基础序列（与原算法一致）
+      var hr = hrBase + (r() - .5) * 12 + (i < 3 ? 2 : 0);
+      var sbp = sbpBase + (r() - .5) * 16;
+      var dbp = sbpBase * .62 + (r() - .5) * 8;
+      var spo2 = spo2Base + (r() - .5) * 1.8;
+
+      if (amp > 0) {
+        // 血压发作：高风险约 28% 天数、中风险约 14%，部分突破 150，少量达危急值
+        if (r() < (high ? .28 : .14)) {
+          sbp += (high ? 26 : 16) + r() * 12;
+          dbp += 6 + r() * 6;
+        }
+        // 血氧下探：高风险约 22%、中风险约 10%，部分低于 92，少量达危急值
+        if (r() < (high ? .22 : .1)) {
+          spo2 -= (high ? 5 : 3) + r() * 2.5;
+        }
+        // 心率冲高：高风险约 18%、中风险约 8%，部分超过 105，少量达危急值
+        if (r() < (high ? .18 : .08)) {
+          hr += (high ? 30 : 22) + r() * 10;
+        }
+      }
+
+      out.hr.push(Math.round(hr));
+      out.sbp.push(Math.round(sbp));
+      out.dbp.push(Math.round(dbp));
+      out.spo2.push(U.round(spo2, 1));
     }
     return out;
   }

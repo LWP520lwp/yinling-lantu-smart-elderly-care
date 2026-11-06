@@ -226,8 +226,20 @@
               UI.toast('请填写姓名与登录账号', 'warn');
               return;
             }
+            // 登录账号唯一性校验
+            var duplicated = D.ACCOUNTS.some(function (a) { return a.account === data.account; });
+            if (duplicated) { UI.toast('登录账号 ' + data.account + ' 已存在', 'warn'); return; }
+
+            S.addAccount({
+              name: data.name,
+              account: data.account,
+              role: data.role,
+              phone: '',
+              village: data.village || '未分配村居'
+            });
             UI.toast('账号 ' + data.account + ' 已创建，初始密码将通过短信发送', 'success');
             api.close();
+            renderPanel(container);
           });
         }
       });

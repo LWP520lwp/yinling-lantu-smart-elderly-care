@@ -18,6 +18,30 @@
     { key: 'false', label: '误报' }
   ];
 
+  /* 告警类型 → 工单类型：跌倒需康复护理，其余异常先上门核实 */
+  var ALERT_ORDER_TYPE = { fall: 'rehab', hr: 'care', bp: 'care', spo2: 'care', fence: 'care' };
+  /* 乡镇 → 就近责任社工（与右侧「今日值班社工」一致），兜底取第一位 */
+  var TOWN_WORKER = { '流水镇': '蔡文静', '北厝镇': '念晓东', '澳前镇': '施小燕' };
+
+  /** 告警派单：真实创建一条关联工单并回写双向关联，返回工单对象 */
+  function dispatchWorkOrder(alert) {
+    return S.addOrder({
+      elderId: alert.elderId,
+      elderName: alert.elderName,
+      village: alert.village,
+      town: alert.town,
+      phone: alert.phone,
+      type: ALERT_ORDER_TYPE[alert.type] || 'care',
+      owner: TOWN_WORKER[alert.town] || '蔡文静',
+      volunteer: '',
+      appointAt: Date.now() + 2 * 3600 * 1000,   // 紧急派单：2 小时内上门
+      source: 'alert',
+      alertId: alert.id,
+      remark: '由告警 ' + alert.id + '（' + D.DICT.alertType[alert.type].text +
+        '）自动派单，需尽快上门核实处置。'
+    });
+  }
+
   /** 操作审计：api 未就绪或上报异常时静默跳过，不阻塞告警处置流程 */
   function auditLog(action, payload) {
     if (!YL.api || typeof YL.api.audit !== 'function') return;
@@ -308,6 +332,8 @@
     if (!a) { UI.toast('告警记录不存在或已被移除', 'warn'); return; }
     var type = D.DICT.alertType[a.type];
     var isView = mode === 'view' || a.status === 'done' || a.status === 'false';
+    var canRaw = U.canSeeRaw();
+    var elderShowName = canRaw ? a.elderName : U.maskName(a.elderName);
 
     var wayOptions = [
       { key: '联系家属', icon: 'phone', desc: '电话核实老人状态' },
@@ -326,9 +352,9 @@
       '</div>' +
 
       '<div class="alert-person-card">' +
-        '<span class="avatar avatar-lg x-warm">' + U.esc(U.maskName(a.elderName).slice(0, 1)) + '</span>' +
+        '<span class="avatar avatar-lg x-warm">' + U.esc(elderShowName.slice(0, 1)) + '</span>' +
         '<div class="alert-person-main">' +
-          '<div class="alert-person-name"><b>' + U.esc(U.maskName(a.elderName)) + '</b><span>' + a.elderAge + ' 岁</span>' +
+          '<div class="alert-person-name"><b>' + U.esc(elderShowName) + '</b><span>' + a.elderAge + ' 岁</span>' +
             '<span class="tag tag-red">重点关注</span></div>' +
           '<p>' + YL.icon('map-pin') + U.esc(U.maskAddress(a.address)) + '</p>' +
           '<p>' + YL.icon('users') + '紧急联系人：' + U.esc(U.canSeeRaw() ? a.familyName : U.maskName(a.familyName)) + '（' + U.esc(a.relation) + '） · <span class="num">' + U.maskPhone(a.phone) + '</span></p>' +
@@ -361,6 +387,15 @@
             '<div><span class="k">处置时间</span><span class="v">' + (a.handledAt ? U.fmtDate(a.handledAt, 'YYYY-MM-DD HH:mm') : U.fmtDate(a.time, 'YYYY-MM-DD HH:mm')) + '</span></div>' +
             '<div><span class="k">处置说明</span><span class="v">' + U.esc(a.result || '—') + '</span></div>' +
           '</dl>' +
+          (a.orderId ?
+            '<div class="linked-order">' +
+              '<div class="linked-order-head"><b>' + YL.icon('route') + '关联工单</b>' +
+                '<span class="t-xs t3">派单上门处置记录</span></div>' +
+              '<a class="linked-order-link" href="#/orders/' + U.esc(a.orderId) + '">' +
+                '<span class="mono">' + U.esc(a.orderId) + '</span>' +
+                '<span class="linked-order-go">查看工单 ' + YL.icon('arrow-right') + '</span>' +
+              '</a>' +
+            '</div>' : '') +
         '</div>'
         :
         '<form id="handleForm" class="handle-form">' +
@@ -442,18 +477,28 @@
             UI.fieldError(form, 'result', '请填写不少于 5 个字的处理结果');
             return;
           }
+
+          // 派单社工：先真实创建关联工单，再把工单编号回写到告警，形成跨模块闭环
+          var linkedOrderId = '';
+          if (way.value === '派单社工') {
+            linkedOrderId = dispatchWorkOrder(a).id;
+          }
+
           S.handleAlert(a.id, {
             status: 'done',
             handler: S.roleConf().name,
             handleWay: way.value,
-            result: result
+            result: result,
+            orderId: linkedOrderId
           });
-          UI.toast('告警已处置，闭环记录已生成', 'success');
+          UI.toast(linkedOrderId
+            ? '已派单并创建关联工单 ' + linkedOrderId
+            : '告警已处置，闭环记录已生成', 'success');
           auditLog('alert_handle', {
             target_type: 'alert',
             target_id: a.id,
             result: 'ok',
-            detail: { level: a.level }
+            detail: { level: a.level, orderId: linkedOrderId || undefined }
           });
           api.close();
           renderListInPlace();

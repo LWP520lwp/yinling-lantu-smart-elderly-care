@@ -707,3 +707,56 @@
   .chat-bubble { max-width: 84%; }
   .risk-rings { gap: 4px; }
 }
+
+/* --------------------------------------------------------------------------
+   数据驱动风险 / 随访 / 信号解读
+   -------------------------------------------------------------------------- */
+.dr-summary { margin: 2px 0 10px; font-size: 12px; line-height: 1.65; color: var(--text-2); }
+.dr-top-evidence { display: flex; flex-direction: column; gap: 8px; }
+.dr-ev-line { display: flex; align-items: flex-start; gap: 8px; font-size: 11px; line-height: 1.5; color: var(--text-3); }
+.dr-ev-line .tag { flex: none; height: 19px; font-size: 10px; }
+.dr-ev-line span:last-child { min-width: 0; }
+
+.dr-follow-list { display: flex; flex-direction: column; gap: 10px; }
+.dr-follow-list li { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+.dr-idx {
+  flex: none;
+  width: 18px; height: 18px;
+  display: inline-grid; place-items: center;
+  border-radius: 50%;
+  background: var(--brand-50);
+  color: var(--brand-600);
+  font-family: var(--font-num);
+  font-size: 10.5px; font-weight: 600;
+}
+
+.dr-metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.dr-metric {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 12px;
+  background: var(--surface-2);
+}
+.dr-metric-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dr-metric-head b { font-size: 13px; font-weight: 600; color: var(--text); }
+.dr-metric-head .tag { height: 19px; font-size: 10px; }
+.dr-metric-stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 9px 0; font-size: 10.5px; color: var(--text-4); }
+.dr-metric-stats b { font-family: var(--font-num); font-weight: 600; color: var(--text-2); margin-left: 2px; }
+.dr-ev-list { display: flex; flex-direction: column; gap: 5px; }
+.dr-ev-list li {
+  position: relative;
+  padding-left: 11px;
+  font-size: 11px; line-height: 1.55; color: var(--text-3);
+}
+.dr-ev-list li::before {
+  content: "";
+  position: absolute; left: 0; top: 7px;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--brand-300);
+}
+
+@media (max-width: 1100px) { .dr-metric-grid { grid-template-columns: 1fr; } }
+@media (max-width: 860px) {
+  .ai-grid { grid-template-columns: 1fr; }
+  .dr-metric-grid { grid-template-columns: 1fr; }
+}

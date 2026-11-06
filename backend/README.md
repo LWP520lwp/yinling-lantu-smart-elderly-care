@@ -25,10 +25,22 @@ backend/
 │     ├─ processor.py         # 阈值判定、告警生成与 60s 冷却、落库、WS 广播
 │     ├─ storage.py           # 唯一持久化入口（SQLite 实现，切 GaussDB 只改此文件）
 │     └─ ws.py                # WebSocket 连接管理与跨线程广播桥
+├─ tests/             # pytest 后端测试（58 个用例，临时库隔离，不污染 data/iot.db）
+│  ├─ conftest.py     # 全局夹具：路径引导、临时 SQLite、认证状态重置
+│  ├─ test_users.py   # 口令哈希 / 账号查找
+│  ├─ test_auth.py    # token 签发验签 / 篡改过期 / 登录限流
+│  ├─ test_llm.py     # 本地关键词模板与流式切块
+│  ├─ test_processor.py  # 阈值判定、危急边界、冷却去重
+│  ├─ test_storage.py    # SQLite CRUD 与统计
+│  └─ test_api.py        # TestClient 接口冒烟（登录 / SSE / 权限 / WebSocket）
 ├─ data/              # 运行时自动创建；iot.db 落库（已被 .gitignore 忽略）
 ├─ .env.example       # 环境变量模板（含 P0 MaaS 与 P1 IoTDA 两段）
 ├─ .gitignore         # 忽略 .env / data / *.db / 虚拟环境 / 缓存
-├─ requirements.txt   # 依赖清单（P1 新增 paho-mqtt、python-qpid-proton）
+├─ requirements.txt       # 核心运行依赖 + paho-mqtt（均保证有预编译 wheel，可离线安装）
+├─ requirements-iot.txt   # 平台侧 AMQP 依赖（python-qpid-proton，装不上可跳过）
+├─ requirements-dev.txt   # 测试依赖（核心依赖 + pytest）
+├─ run.bat            # Windows 一键脚本：建虚拟环境 / 装依赖 / 启动；run.bat test 跑测试
+├─ run.sh             # Linux / macOS 一键脚本（用法同 run.bat）
 └─ README.md          # 本文档
 ```
 
@@ -47,22 +59,48 @@ backend/
 | `app/iot/storage.py` | 建表 `init_db()` 与 7 个业务函数（`insert_vitals` / `insert_alert` / `recent_vitals` / `recent_alerts` / `insert_audit` / `recent_audits` / `stats`），含 `audit_logs` 表，上层不写 SQL |
 | `app/iot/ws.py` | 维护 WS 连接，`publish_threadsafe()` 支持从 AMQP 同步线程安全广播 |
 
-> **P1 带来的环境变量与依赖变化**：`.env.example` 追加了 `IOTDA_*`、`IOTDB_PATH`、
-> `HUAWEI_CLOUD_*` 与阈值/冷却配置；`requirements.txt` 追加 `paho-mqtt>=2.1.0`（设备侧 MQTT）
-> 与 `python-qpid-proton>=0.39.0`（平台侧 AMQP）。两者缺失只会让 IoT 链路降级，
-> AI 问答与前端演示不受影响。
+> **依赖拆分与容错**：核心运行依赖（FastAPI / uvicorn / httpx / pydantic / python-dotenv）
+> 与设备侧 MQTT 客户端 `paho-mqtt` 一起归入 `requirements.txt`，均为纯 Python 或预编译
+> wheel，可在干净环境直接安装；平台侧 AMQP 需要的 `python-qpid-proton` 则单独留在
+> `requirements-iot.txt`，它在部分 Windows 环境只有源码包、需 MSVC Build Tools。
+> 该依赖缺失只影响平台侧 AMQP 订阅，AI 问答与前端演示不受影响，因此 `run.bat` /
+> `run.sh` 对 IoT 依赖采用「尝试安装、失败即跳过」的容错策略，不会阻断服务启动。
+> 测试依赖见 `requirements-dev.txt`（核心依赖 + pytest），不依赖需要编译的 IoT 包。
 
 ## 二、Windows PowerShell 启动步骤
 
-在 `D:\Desktop\华为开发者项目\backend` 目录下依次执行：
+### 方式 A：一键脚本（推荐）
+
+在 `backend` 目录双击或在命令行执行：
+
+```powershell
+# 启动 Web 服务：自动创建 .venv、安装核心依赖、容错安装可选 IoT 依赖后启动
+.\run.bat
+
+# 运行后端测试（58 个用例，临时库隔离，无需 MSVC 编译器）
+.\run.bat test
+```
+
+Linux / macOS 下使用对应 shell 脚本：
+
+```bash
+./run.sh          # 启动服务
+./run.sh test     # 运行测试
+```
+
+### 方式 B：手动步骤
+
+在 `backend` 目录下依次执行：
 
 ```powershell
 # 1. 创建并激活虚拟环境
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
-# 2. 安装依赖
+# 2. 安装核心运行依赖（必装；本地演示 / AI 问答到此即可）
 pip install -r requirements.txt
+# 仅当需要真实 IoTDA 平台侧 AMQP 订阅时再执行（失败可跳过，服务自动降级为本地模拟模式）
+pip install -r requirements-iot.txt
 
 # 3. 复制环境变量模板并填写 Key
 Copy-Item .env.example .env
@@ -80,6 +118,21 @@ uvicorn app.main:app --reload --port 8000
 ```powershell
 python -m app.main
 ```
+
+### 运行测试
+
+```powershell
+# 安装测试依赖（核心依赖 + pytest，不包含需要编译的可选 IoT 包）
+pip install -r requirements-dev.txt
+# 运行全部用例；加 -v 查看逐条结果，-k 按名称筛选
+python -m pytest -v
+```
+
+测试覆盖：账号与口令哈希、HMAC token 签发 / 验签 / 过期 / 篡改与登录限流、
+本地问答模板与流式切块、阈值判定与危急边界、60 秒冷却去重、SQLite CRUD 与统计，
+以及 FastAPI TestClient 接口冒烟（健康检查、登录 401/429、SSE 对话、鉴权 401/403、
+WebSocket 握手与 1008 拒绝）。所有用例通过 `conftest.py` 把数据库指向临时 SQLite，
+**不会** 读写默认的 `data/iot.db`。
 
 启动后：
 
@@ -204,6 +257,9 @@ data: {"type":"error","message":"模型输出中断，请稍后重试"}
 覆盖：急症（胸痛 / 呼吸困难 / 意识障碍 / 偏瘫 / 大出血 / 过敏）、胸闷、血压、心率、
 睡眠、饮食、跌倒、血糖、运动、用药、情绪孤独、咳嗽发热食欲，以及通用兜底。
 急症场景优先给 120 指引；其余回答末尾统一附「以上建议仅供参考，不能替代医生面诊。」
+
+**IoT 链路的有意降级**：未配置 IoTDA 时 `/ws` 仍可握手，但只下发 `hello`（`iot_enabled=false`），体征/告警帧静默，不影响登录、AI 问答与历史数据展示。
+前端的本地模拟并非默认行为，仅在 WS 不可达（重连 5 次耗尽）时启用——告警按 20 秒探测、60 秒节流，设备详情页日志 5 秒刷新；配置真实 IoTDA AMQP 后自动切换为 WebSocket 全链路实时推送。
 
 ## 六、常见问题
 
@@ -949,6 +1005,8 @@ CREATE TABLE IF NOT EXISTS alerts (
    - 完全无消息 → 问题在规则 / 队列侧，不在后端。
 
 **4. `python-qpid-proton` 安装失败**
+
+该依赖仅用于真实 IoTDA 平台侧 AMQP 订阅，已归入 `requirements-iot.txt`，装不上可直接跳过，不影响核心服务与 AI 问答。其他排查：
 
 - Windows 优先用预编译 wheel：`pip install --only-binary=:all: python-qpid-proton`；
 - 升级 pip 后重试：`python -m pip install -U pip`；

@@ -39,6 +39,13 @@
     return { text: '低风险', cls: 'tag-green', color: '#00B42A' };
   }
 
+  /** 与风险引擎 level（low/mid/high）对齐的展示元数据 */
+  function levelMeta(l) {
+    if (l === 'high') return { text: '高风险', cls: 'tag-red', color: '#F53F3F' };
+    if (l === 'mid') return { text: '中风险', cls: 'tag-orange', color: '#FF7D00' };
+    return { text: '低风险', cls: 'tag-green', color: '#00B42A' };
+  }
+
   /* ------------------------------------------------------------------
      页面
      ------------------------------------------------------------------ */
@@ -103,7 +110,14 @@
     container.querySelector('#exportAi').addEventListener('click', function () {
       var elder = findElder(selectedId);
       if (!elder) return;
-      var s = scores(elder);
+      var r = YL.riskEngine.analyze(elder, 30);
+      var rl = levelMeta(r.level);
+      var metricLines = ['hr', 'sbp', 'spo2'].map(function (k) {
+        var m = r.metrics[k];
+        return '· ' + m.name + '（' + levelMeta(m.level).text + '）：最新 ' + m.latest + ' ' + m.unit +
+          '，均值 ' + m.mean + '，越界 ' + m.breachCount + ' 天\n' +
+          m.evidence.map(function (e) { return '    - ' + e; }).join('\n');
+      }).join('\n');
       var content =
         '银龄岚途 · AI 健康分析报告\n' +
         '生成时间：' + U.fmtDate(new Date(), 'YYYY-MM-DD HH:mm') + '\n\n' +
@@ -111,10 +125,12 @@
         '村居：' + elder.village + '\n' +
         '健康等级：' + D.DICT.health[elder.health].text + '\n' +
         '慢病病史：' + (elder.chronic.join('、') || '无') + '\n\n' +
-        '慢病风险评分：' + s.chronic + ' / 100（' + riskLevel(s.chronic).text + '）\n' +
-        '跌倒风险评分：' + s.fall + ' / 100（' + riskLevel(s.fall).text + '）\n\n' +
-        '【个性化建议】\n' + adviceFor(elder).map(function (a) { return '· ' + a; }).join('\n') + '\n\n' +
-        '【说明】本报告由华为云盘古大模型生成，仅供参考，不作为诊疗依据。';
+        '综合风险评分：' + r.score + ' / 100（' + rl.text + '）\n' +
+        '总体结论：' + r.summary + '\n\n' +
+        '【体征信号解读】\n' + metricLines + '\n\n' +
+        '【个性化随访计划】' + r.followUp.frequency + '\n' +
+        r.followUp.items.map(function (it, i) { return (i + 1) + '. ' + it; }).join('\n') + '\n\n' +
+        '【说明】本报告由体征数据驱动生成，仅供参考，不作为诊疗依据。';
       // 文件名只用老人编号，不暴露姓名（脱敏报告内容也不应通过文件名反推真名）
       U.download('AI健康分析_' + elder.id + '_' + U.fmtDate(new Date(), 'YYYYMMDD') + '.txt', content, 'text/plain;charset=utf-8');
       UI.toast('分析报告已导出', 'success');
@@ -152,24 +168,6 @@
     });
   }
 
-  function adviceFor(elder) {
-    var chronic = elder.chronic || [];
-    var hasBp = chronic.indexOf('高血压') !== -1;
-    var hasSugar = chronic.indexOf('2 型糖尿病') !== -1;
-    var disabled = elder.health === 'disabled';
-    var out = [];
-
-    out.push(hasBp ? '每日食盐摄入控制在 5g 以内，减少腌制海产与酱油用量，多食深色蔬菜。' :
-      '保持清淡饮食，每日食盐不超过 5g，适量补充鱼、蛋、豆制品等优质蛋白。');
-    out.push(disabled ? '以床上/座椅关节活动为主，家属协助每日 2 次、每次 10 分钟被动活动。' :
-      '建议每日清晨或傍晚快走 20 - 30 分钟，配合八段锦，心率控制在（170 - 年龄）以内。');
-    out.push(hasSugar ? '监测空腹血糖，主食粗细搭配，避免稀饭与含糖糕点，按医嘱规律用药。' :
-      '按医嘱规律服药，家属可使用手环用药提醒功能，避免漏服、重复服药。');
-    out.push(disabled ? '跌倒风险较高，建议卧室至卫生间加装扶手，夜间保留小夜灯。' :
-      '每周进行 2 次平衡训练（单脚站立、脚跟脚尖行走），降低跌倒风险。');
-    return out;
-  }
-
   function renderPanel(container, animate) {
     var main = container.querySelector('#aiMain');
     var elder = findElder(selectedId);
@@ -197,10 +195,8 @@
   }
 
   function paintPanel(main, elder) {
-    var s = scores(elder);
-    var cr = riskLevel(s.chronic);
-    var fr = riskLevel(s.fall);
-    var advice = adviceFor(elder);
+    var r = YL.riskEngine.analyze(elder, 30);
+    var rl = levelMeta(r.level);
     var v = elder.lastVitals;
 
     main.innerHTML =
@@ -212,7 +208,7 @@
               '<span class="tag ' + D.DICT.health[elder.health].cls + '">' + D.DICT.health[elder.health].text + '</span>' +
               '<span class="tag tag-outline">' + D.DICT.member[elder.member].text + '</span></div>' +
             '<p>' + elder.gender + ' · ' + elder.age + ' 岁 · ' + U.esc(elder.village) + ' · 慢病：' + (elder.chronic.join('、') || '无') + '</p>' +
-            '<p class="t3 t-sm">数据范围：近 30 天手环连续体征 · 样本 ' + (elder.health === 'disabled' ? 812 : 1024) + ' 条</p>' +
+            '<p class="t3 t-sm">数据范围：近 30 天手环连续体征 · 每指标 30 个数据点（共 120 个）</p>' +
           '</div>' +
         '</div>' +
         '<div class="ai-profile-right">' +
@@ -225,49 +221,67 @@
 
       '<div class="ai-grid">' +
         '<article class="card ai-risk-card">' +
-          '<div class="card-head"><div class="card-title">' + YL.icon('target') + '健康风险评估</div>' +
-            '<span class="card-sub">盘古医疗模型</span></div>' +
+          '<div class="card-head"><div class="card-title">' + YL.icon('target') + '数据驱动风险评估</div>' +
+            '<span class="card-sub">近 30 天真实体征</span></div>' +
           '<div class="card-body">' +
             '<div class="risk-rings">' +
               '<div class="risk-ring-item">' +
-                C.scoreRing(s.chronic, { size: 104, stroke: 8, color: cr.color, label: '分' }) +
-                '<b>慢病风险</b><span class="tag ' + cr.cls + '">' + cr.text + '</span>' +
-              '</div>' +
-              '<div class="risk-ring-item">' +
-                C.scoreRing(s.fall, { size: 104, stroke: 8, color: fr.color, label: '分' }) +
-                '<b>跌倒风险</b><span class="tag ' + fr.cls + '">' + fr.text + '</span>' +
+                C.scoreRing(r.score, { size: 104, stroke: 8, color: rl.color, label: '分' }) +
+                '<b>综合风险</b><span class="tag ' + rl.cls + '">' + rl.text + '</span>' +
               '</div>' +
             '</div>' +
-            '<div class="risk-factors">' +
-              '<span class="risk-label">主要风险因子</span>' +
-              '<div class="risk-tags">' +
-                (elder.chronic.length ? elder.chronic.map(function (c) { return '<span class="tag tag-outline">' + U.esc(c) + '</span>'; }).join('') : '') +
-                '<span class="tag tag-outline">' + elder.age + ' 岁高龄</span>' +
-                (elder.health === 'disabled' ? '<span class="tag tag-red">失能状态</span>' : '') +
-                (v.spo2 < 94 ? '<span class="tag tag-red">血氧偏低</span>' : '') +
-              '</div>' +
+            '<p class="dr-summary">' + U.esc(r.summary) + '</p>' +
+            '<div class="dr-top-evidence">' +
+              r.topEvidence.map(function (e) {
+                var em = levelMeta(e.level);
+                return '<div class="dr-ev-line"><span class="tag ' + em.cls + '">' + e.name + '</span>' +
+                  '<span>' + U.esc(e.text) + '</span></div>';
+              }).join('') +
             '</div>' +
             '<div class="info-note">' + YL.icon('info') +
-              '<span>评分基于 30 天静息心率波动、血压达标率、活动步数与跌倒事件加权计算。</span></div>' +
+              '<span>综合分结合三项指标的越界次数、危急值与趋势，取加权均值与最坏信号两者，并按分级区间校准。</span></div>' +
           '</div>' +
         '</article>' +
 
         '<article class="card ai-advice-card">' +
-          '<div class="card-head"><div class="card-title">' + YL.icon('heart') + '个性化健康建议</div>' +
-            '<span class="card-sub">AI 自动生成</span></div>' +
+          '<div class="card-head"><div class="card-title">' + YL.icon('heart') + '个性化随访计划</div>' +
+            '<span class="card-sub">' + U.esc(r.followUp.frequency) + '</span></div>' +
           '<div class="card-body">' +
-            '<div class="advice-item"><span class="advice-ico diet">' + YL.icon('droplet') + '</span>' +
-              '<div><b>饮食调理</b><p>' + U.esc(advice[0]) + '</p></div></div>' +
-            '<div class="advice-item"><span class="advice-ico move">' + YL.icon('activity') + '</span>' +
-              '<div><b>运动康复</b><p>' + U.esc(advice[1]) + '</p></div></div>' +
-            '<div class="advice-item"><span class="advice-ico med">' + YL.icon('clock') + '</span>' +
-              '<div><b>用药提醒</b><p>' + U.esc(advice[2]) + '</p></div></div>' +
-            '<div class="advice-item"><span class="advice-ico safe">' + YL.icon('shield') + '</span>' +
-              '<div><b>安全防护</b><p>' + U.esc(advice[3]) + '</p></div></div>' +
-            '<p class="ai-disclaimer">' + YL.icon('alert-circle') + 'AI 建议仅供参考，不作为诊疗依据；如有不适请及时就医。</p>' +
+            '<ol class="dr-follow-list">' +
+              r.followUp.items.map(function (it, idx) {
+                return '<li><span class="dr-idx">' + (idx + 1) + '</span><span>' + U.esc(it) + '</span></li>';
+              }).join('') +
+            '</ol>' +
+            '<p class="ai-disclaimer">' + YL.icon('alert-circle') +
+              '随访计划由体征数据自动生成，实际执行以家庭医生与社工安排为准。</p>' +
           '</div>' +
         '</article>' +
       '</div>' +
+
+      '<article class="card ai-signal-card">' +
+        '<div class="card-head"><div class="card-title">' + YL.icon('activity') + '体征信号解读（可解释）</div>' +
+          '<span class="card-sub">每条结论均引用具体数据点</span></div>' +
+        '<div class="card-body">' +
+          '<div class="dr-metric-grid">' +
+            ['hr', 'sbp', 'spo2'].map(function (k) {
+              var m = r.metrics[k];
+              var ml = levelMeta(m.level);
+              return '<div class="dr-metric">' +
+                '<div class="dr-metric-head"><b>' + m.name + '</b>' +
+                  '<span class="tag ' + ml.cls + '">' + ml.text + '</span></div>' +
+                '<div class="dr-metric-stats">' +
+                  '<span>最新 <b>' + m.latest + '</b> ' + m.unit + '</span>' +
+                  '<span>均值 <b>' + m.mean + '</b></span>' +
+                  '<span>越界 <b>' + m.breachCount + '</b> 天</span>' +
+                '</div>' +
+                '<ul class="dr-ev-list">' +
+                  m.evidence.map(function (e) { return '<li>' + U.esc(e) + '</li>'; }).join('') +
+                '</ul>' +
+              '</div>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
+      '</article>' +
 
       '<article class="card ai-group-card">' +
         '<div class="card-head"><div class="card-title">' + YL.icon('globe') + '群体健康洞察</div>' +

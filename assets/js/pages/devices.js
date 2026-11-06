@@ -265,6 +265,25 @@
           if (!/^YL-PT-\d{4}-\d{4}$/.test(data.deviceId)) {
             UI.fieldError(form, 'deviceId', '设备编号格式应为 YL-PT-2024-XXXX'); return;
           }
+          // 防止重复绑定同一编号设备
+          var duplicated = S.devices().some(function (d) { return d.id === data.deviceId; });
+          if (duplicated) { UI.fieldError(form, 'deviceId', '该设备已在设备清单中，请勿重复绑定'); return; }
+
+          var patch = { id: data.deviceId };
+          if (data.elderId) {
+            var elder = S.state.elders.filter(function (e) { return e.id === data.elderId; })[0];
+            if (!elder) { UI.toast('老人档案不存在', 'warn'); return; }
+            patch.elderId = elder.id;
+            patch.elderName = elder.name;
+            patch.village = elder.village;
+            patch.town = elder.town;
+          }
+
+          S.addDevice(patch);
+          // 联动老人档案：标记已绑定并回写设备编号
+          if (data.elderId) {
+            S.updateElder(data.elderId, { deviceBound: true, deviceId: data.deviceId });
+          }
           UI.toast('设备 ' + data.deviceId + ' 校验通过，已绑定华为云 IoT 实例', 'success');
           api.close();
           if (container) renderTable(container);

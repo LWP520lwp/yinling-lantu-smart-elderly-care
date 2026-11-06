@@ -7,6 +7,7 @@ __pycache__/
 venv/
 .venv/
 *.log
+.pytest_cache/
 
 # 本地 IoT 数据（SQLite 落库，含真实体征记录，不提交）
 data/

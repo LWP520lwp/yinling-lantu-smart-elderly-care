@@ -269,6 +269,22 @@
     return target;
   }
 
+  /** 新增账号（写入数据层 ACCOUNTS，账号面板即时可见） */
+  function addAccount(data) {
+    var account = Object.assign({
+      id: 'U' + U.pad2(D.ACCOUNTS.length + 1),
+      name: '',
+      account: '',
+      role: 'social',
+      phone: '',
+      village: '',
+      status: 'active',
+      lastLogin: Date.now()
+    }, data);
+    D.ACCOUNTS.push(account);
+    return account;
+  }
+
   /** 新增老人档案 */
   function addElder(data) {
     var elder = Object.assign({
@@ -305,6 +321,32 @@
       return e.deviceId === deviceId ? Object.assign({}, e, { deviceBound: false }) : e;
     });
     emit('devices', deviceId);
+  }
+
+  /** 新增设备（绑定/入库）：补齐设备影子所需字段，返回新设备对象 */
+  function addDevice(data) {
+    var now = Date.now();
+    var suffix = U.pad2(10 + Math.floor(Math.random() * 89));
+    var device = Object.assign({
+      iotId: 'yl' + U.fmtDate(now, 'YYYYMMDDHHmmss') + suffix,
+      elderId: null,
+      elderName: '未绑定',
+      village: '未分配',
+      town: '',
+      type: '银龄守护手环 P1',
+      status: 'online',
+      lastReport: now,
+      battery: 100,
+      firmware: 'HarmonyOS Wear 3.2.1',
+      activatedAt: now,
+      imei: '8691' + String(10000000 + Math.floor(Math.random() * 89999999)),
+      mac: 'A4:5E:60:' + suffix + ':' + U.pad2(10 + Math.floor(Math.random() * 89)) +
+        ':' + U.pad2(10 + Math.floor(Math.random() * 89)),
+      signal: 4
+    }, data);
+    state.devices.unshift(device);
+    emit('devices', device);
+    return device;
   }
 
   function savePref() {
@@ -379,8 +421,8 @@
     scopeTown: scopeTown, elders: elders, alerts: alerts, orders: orders, devices: devices,
     pendingAlertCount: pendingAlertCount,
     handleAlert: handleAlert, setAlertStatus: setAlertStatus,
-    addOrder: addOrder, updateOrder: updateOrder,
-    addElder: addElder, updateElder: updateElder, unbindDevice: unbindDevice,
+    addOrder: addOrder, updateOrder: updateOrder, addAccount: addAccount,
+    addElder: addElder, updateElder: updateElder, unbindDevice: unbindDevice, addDevice: addDevice,
     setSound: setSound, setNavCollapsed: setNavCollapsed, setThresholds: setThresholds,
     simulateAlert: simulateAlert
   };

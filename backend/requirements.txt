@@ -4,7 +4,7 @@ httpx>=0.27
 python-dotenv>=1.0
 pydantic>=2.6
 
-# IoT：设备侧 MQTT 直连 / 平台侧 AMQP 订阅
-# 未配置 IoTDA 时服务自动退回本地模拟模式，这两项依赖不参与 AI 问答链路
+# 设备侧 MQTT 直连（纯 Python，可正常安装）
 paho-mqtt>=2.1.0
-python-qpid-proton>=0.39.0
+
+# 平台侧 AMQP 依赖 python-qpid-proton 已移至 requirements-iot.txt，本地演示无需安装

@@ -1,0 +1,5 @@
+# 开发 / 测试依赖（运行时不需要）。
+# 安装：python -m pip install -r requirements-dev.txt
+# 先引入完整运行依赖，再追加测试框架
+-r requirements.txt
+pytest>=8.0

@@ -64,11 +64,11 @@
     "userID": "hid_ci_e9ypas3l817g",
     "domainID": "hid_ci_e9ypas3l817g",
     "type": "Language preference",
-    "content": "Communicates in Chinese and wants Chinese code comments consistent with the existing style (no redundant comments), while code naming and variable names stay English.",
+    "content": "Prefers Chinese for interaction, while using English technical terms and package names such as requirements.txt, FastAPI, AMQP, and python-qpid-proton.",
     "remark": "new",
     "namespace": "DevMate",
     "createTime": "2026-11-05T05:10:24.520Z",
-    "updateTime": "2026-11-05T07:26:22.033Z",
+    "updateTime": "2026-11-06T04:53:52.146Z",
     "isDeleted": false
   },
   {
@@ -124,11 +124,11 @@
     "userID": "hid_ci_e9ypas3l817g",
     "domainID": "hid_ci_e9ypas3l817g",
     "type": "Programming language",
-    "content": "Uses Python for backend work, with pydantic v2 models configured as extra=\"ignore\".",
+    "content": "Works with a Python backend (Python 3.13, .py files) and manages Python dependencies through requirements.txt.",
     "remark": "new",
     "namespace": "DevMate",
     "createTime": "2026-11-05T07:26:22.022Z",
-    "updateTime": "2026-11-05T07:26:22.022Z",
+    "updateTime": "2026-11-06T04:53:52.167Z",
     "isDeleted": false
   },
   {

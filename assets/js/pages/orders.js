@@ -478,6 +478,9 @@
               '<div class="card-body">' +
                 '<dl class="kv-list">' +
                   '<div><span class="k">工单编号</span><span class="v mono">' + U.esc(o.id) + '</span></div>' +
+                  (o.alertId ?
+                    '<div><span class="k">来源告警</span><span class="v"><a class="link-name" href="#/alerts?focus=' +
+                      U.esc(o.alertId) + '">' + U.esc(o.alertId) + '</a>（应急告警自动派单）</span></div>' : '') +
                   '<div><span class="k">服务对象</span><span class="v"><a class="link-name" href="#/elders/' + o.elderId + '">' + U.esc(U.maskName(o.elderName)) + '</a>（' + U.esc(o.village) + '）</span></div>' +
                   '<div><span class="k">联系电话</span><span class="v num">' + U.maskPhone(o.phone) + '</span></div>' +
                   '<div><span class="k">服务类型</span><span class="v">' + D.DICT.orderType[o.type].text + '</span></div>' +

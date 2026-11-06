@@ -1,0 +1,4 @@
+# 真实 IoTDA 平台侧 AMQP 订阅专用，需在核心依赖之上额外安装：
+# pip install -r requirements-iot.txt
+# 注意：Windows 无预编译 wheel 时需先安装 Microsoft C++ Build Tools
+python-qpid-proton>=0.39.0
